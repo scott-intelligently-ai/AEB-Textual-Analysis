@@ -364,7 +364,7 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
                 checked={effectiveMode === "variants"}
                 onChange={() => setMode("variants")}
               />
-              The first word on a line is the term; the rest are its variants
+              The first entry on each line is the term; the rest are its variants
             </label>
             <label className="flex items-center gap-2">
               <input
@@ -374,7 +374,7 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
                 checked={effectiveMode === "terms"}
                 onChange={() => setMode("terms")}
               />
-              Every comma-separated word is a term of its own
+              Every comma-separated entry is a term of its own
             </label>
           </fieldset>
         ) : null}

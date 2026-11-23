@@ -132,6 +132,8 @@ export function EditView({ document, terms, annotations }: Props) {
               setCursor(event.target.selectionStart);
             }}
             onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
+            onClick={(event) => setCursor(event.currentTarget.selectionStart)}
+            onKeyUp={(event) => setCursor(event.currentTarget.selectionStart)}
             spellCheck
             aria-label="Document text"
             className="document-text block h-[72vh] w-full resize-none border-0 bg-transparent px-6 py-5 text-zinc-900 focus:outline-none"

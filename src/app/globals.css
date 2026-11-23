@@ -59,6 +59,13 @@ body {
   box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--tone);
   border-radius: 0.25rem;
 }
+.term-mark:focus {
+  outline: none;
+}
+.term-mark:focus-visible:not([data-selected="true"]) {
+  outline: 2px solid var(--tone);
+  outline-offset: 2px;
+}
 .term-mark[data-dimmed="true"] {
   opacity: 0.3;
 }
@@ -79,6 +86,10 @@ body {
 }
 .suggestion-mark[data-selected="true"] {
   box-shadow: 0 0 0 2px #a16207;
+}
+.suggestion-mark:focus-visible {
+  outline: 2px solid #a16207;
+  outline-offset: 2px;
 }
 .existing-term-mark {
   border-bottom: 1.5px solid #a1a1aa;

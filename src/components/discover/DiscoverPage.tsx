@@ -115,6 +115,17 @@ function Discover({
     return totals;
   }, [pending]);
 
+  // A longer phrase takes its words away from a shorter term it contains.
+  const overlapping = useMemo(() => {
+    const byId = new Map(terms.map((term) => [term.id, term.text]));
+    return new Map(
+      pending.map((suggestion) => [
+        suggestion.id,
+        [...new Set(findOccurrences(suggestion.text, terms).map((o) => byId.get(o.termId)!))],
+      ]),
+    );
+  }, [pending, terms]);
+
   async function savePurpose(): Promise<boolean> {
     if (!purposeDirty) return true;
     setSavingPurpose(true);
@@ -278,6 +289,7 @@ function Discover({
                   const selected = focus?.suggestionId === suggestion.id;
                   const inDocuments = Object.keys(suggestion.perDocument).length;
                   const here = documentId === null ? 0 : (suggestion.perDocument[documentId] ?? 0);
+                  const overlaps = overlapping.get(suggestion.id) ?? [];
                   return (
                     <li key={suggestion.id} id={`suggestion-${suggestion.id}`}>
                       <Card
@@ -305,6 +317,13 @@ function Discover({
                         <p className="mt-1.5 text-sm leading-5 text-zinc-700">
                           {suggestion.rationale}
                         </p>
+                        {overlaps.length > 0 ? (
+                          <p className="mt-1.5 rounded-md bg-amber-50 px-2 py-1 text-xs leading-5 text-amber-900">
+                            Contains your term {overlaps.map((name) => `“${name}”`).join(", ")}. If
+                            you include this phrase, its uses are counted under the phrase instead,
+                            and any tone already set on them is cleared.
+                          </p>
+                        ) : null}
                         <div className="mt-2.5 flex flex-wrap items-center gap-2">
                           <Button
                             size="sm"
@@ -472,8 +491,8 @@ function Viewer({
 
   return (
     <Card>
-      <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200 px-5 py-3">
-        <label className="flex min-w-0 flex-1 items-center gap-2 text-sm">
+      <div className="space-y-2 border-b border-zinc-200 px-5 py-3">
+        <label className="flex items-center gap-2 text-sm">
           <span className="shrink-0 font-medium text-zinc-700">Document</span>
           <select
             value={documentId}

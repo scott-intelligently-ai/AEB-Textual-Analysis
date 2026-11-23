@@ -94,6 +94,8 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
       top: box.bottom - frame.top + 8,
       left: Math.max(0, Math.min(box.left - frame.left, frame.width - POPOVER_WIDTH)),
     });
+    // Keyboard shortcuts act on the selected term, so focus follows it.
+    element.focus({ preventScroll: true });
     if (scroll && (box.top < 96 || box.bottom > window.innerHeight - 380)) {
       element.scrollIntoView({ block: "center", behavior: "smooth" });
     }
@@ -152,6 +154,8 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
 
   async function askAi(occurrence: Occurrence) {
     const key = spanKey(occurrence);
+    // Move focus off the button before it is disabled, or key presses are lost.
+    markElement(key)?.focus({ preventScroll: true });
     setAsking(key);
     try {
       const result = await send<AiToneResult>("POST", `/api/documents/${document.id}/ai-tone`, {
@@ -242,6 +246,8 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
       void applyTone(activeOccurrence, tone.id);
       step(1);
     } else if (event.key === "Enter" && activeAnnotation?.source === "ai") {
+      // On a focused button or link, Enter belongs to that control.
+      if (event.target instanceof Element && event.target.closest("button, a")) return;
       handled();
       void applyTone(activeOccurrence, activeAnnotation.toneId);
       step(1);
@@ -378,6 +384,8 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
                     }`}
                     onClick={() => select(active?.key === key ? null : key)}
                     onKeyDown={(event) => {
+                      // Once the picker is open, keys are shortcuts handled above.
+                      if (active?.key === key) return;
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
                         event.stopPropagation();
@@ -446,7 +454,8 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
                           aria-pressed={current}
                           onClick={() => {
                             void applyTone(activeOccurrence, tone.id);
-                            select(null);
+                            markElement(active.key)?.focus({ preventScroll: true });
+                            setSelection(null);
                           }}
                           className={cx(
                             "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
