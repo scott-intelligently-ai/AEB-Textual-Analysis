@@ -1,17 +1,16 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
+import {
+  PROVIDERS,
+  PROVIDER_LABELS,
+  type Provider,
+  type ProviderInfo,
+  type Task,
+} from "./providers";
 
-export const PROVIDERS = ["anthropic", "openai"] as const;
-export type Provider = (typeof PROVIDERS)[number];
-
-export const TASKS = ["ocr", "analysis"] as const;
-export type Task = (typeof TASKS)[number];
-
-export const PROVIDER_LABELS: Record<Provider, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-};
+export { PROVIDERS, PROVIDER_LABELS, isProvider } from "./providers";
+export type { Provider, ProviderInfo, Task } from "./providers";
 
 const KEY_VARS: Record<Provider, string> = {
   anthropic: "ANTHROPIC_API_KEY",
@@ -35,10 +34,6 @@ const FALLBACK_MODELS: Record<Provider, Record<Task, string>> = {
 
 export class AiConfigError extends Error {}
 
-export function isProvider(value: unknown): value is Provider {
-  return PROVIDERS.includes(value as Provider);
-}
-
 export function modelId(provider: Provider, task: Task): string {
   return process.env[MODEL_VARS[provider][task]]?.trim() || FALLBACK_MODELS[provider][task];
 }
@@ -59,14 +54,6 @@ export function languageModel(provider: Provider, task: Task): LanguageModel {
   return provider === "anthropic"
     ? createAnthropic({ apiKey })(id)
     : createOpenAI({ apiKey })(id);
-}
-
-export interface ProviderInfo {
-  provider: Provider;
-  label: string;
-  hasKey: boolean;
-  keyVariable: string;
-  models: Record<Task, { id: string; variable: string }>;
 }
 
 export function providerInfo(): ProviderInfo[] {
