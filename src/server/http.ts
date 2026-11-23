@@ -71,8 +71,9 @@ type Handler<P> = (request: NextRequest, params: P) => unknown | Promise<unknown
  */
 export function route<P = Record<string, never>>(handler: Handler<P>) {
   return async (request: NextRequest, context: { params: Promise<P> }) => {
+    // Outside the try: during a build this rejects by design, and Next handles it.
+    await connection();
     try {
-      await connection();
       const result = await handler(request, await context.params);
       if (result instanceof Response) return result;
       return Response.json(result ?? { ok: true });
