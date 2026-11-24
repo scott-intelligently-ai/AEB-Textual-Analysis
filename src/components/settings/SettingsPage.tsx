@@ -80,7 +80,7 @@ function Settings({ settings }: { settings: SettingsResponse }) {
       <div className="space-y-6">
         <ProviderChoice
           title="Converting scans to text"
-          description="Reads each page image and writes out its text. Accuracy here decides the quality of every count that follows."
+          description="Reads each page image and writes out its text. Accuracy here decides the quality of every count that follows. Word, RTF, and plain text files are read directly."
           task="ocr"
           value={settings.ocrProvider}
           providers={settings.providers}

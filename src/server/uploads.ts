@@ -1,22 +1,11 @@
-import path from "node:path";
 import { asc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import type { OcrStatus, UploadStatus } from "../db/schema";
 import type { Provider } from "../lib/ai/models";
+import { extensionOfFilename, isSupportedUploadExtension } from "../lib/text/fileKinds";
 import { cleanTranscription } from "../lib/text/transcription";
 import { badRequest, notFound } from "./http";
 import { createUploadTicket, objectExists, removeFolder } from "./storage";
-
-const IMAGE_EXTENSIONS = new Set([
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".webp",
-  ".gif",
-  ".tif",
-  ".tiff",
-  ".avif",
-]);
 
 /** Large scans are uploaded straight to storage, so this only guards accidents. */
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
@@ -24,6 +13,8 @@ const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
 export interface PageSummary {
   id: number;
   pageNumber: number;
+  /** False when the text was read from a Word, RTF, or text file and there is no scan. */
+  hasImage: boolean;
   ocrStatus: OcrStatus;
   ocrError: string | null;
   ocrModel: string | null;
@@ -49,10 +40,10 @@ export interface UploadTicket {
 }
 
 function extensionOf(filename: string): string {
-  const extension = path.extname(filename).toLowerCase();
-  if (extension !== ".pdf" && !IMAGE_EXTENSIONS.has(extension)) {
+  const extension = extensionOfFilename(filename);
+  if (!isSupportedUploadExtension(extension)) {
     throw badRequest(
-      `${filename} is not a supported file. Upload a PDF or an image (PNG, JPEG, WebP, GIF, TIFF, AVIF).`,
+      `${filename} is not a supported file. Upload a PDF, an image (PNG, JPEG, WebP, GIF, TIFF, or AVIF), a Word document (.doc or .docx), an RTF file, or a plain text file.`,
     );
   }
   return extension;
@@ -150,6 +141,7 @@ function summarize(
     pages: pages.map((page) => ({
       id: page.id,
       pageNumber: page.pageNumber,
+      hasImage: page.storagePath.length > 0,
       ocrStatus: page.ocrStatus,
       ocrError: page.ocrError,
       ocrModel: page.ocrModel,
@@ -214,8 +206,16 @@ export async function updatePageText(id: number, text: string): Promise<void> {
 export async function enqueueOcr(pageIds: number[], provider: Provider): Promise<void> {
   if (pageIds.length === 0) return;
   const db = await getDb();
+  const pages = await db
+    .select({ id: schema.pages.id, storagePath: schema.pages.storagePath })
+    .from(schema.pages)
+    .where(inArray(schema.pages.id, pageIds));
+  const imageIds = pages.filter((page) => page.storagePath.length > 0).map((page) => page.id);
+  if (imageIds.length === 0) {
+    throw badRequest("This file was read as text, so there is no page image to convert.");
+  }
   await db
     .update(schema.pages)
     .set({ ocrStatus: "pending", ocrError: null, ocrProvider: provider })
-    .where(inArray(schema.pages.id, pageIds));
+    .where(inArray(schema.pages.id, imageIds));
 }

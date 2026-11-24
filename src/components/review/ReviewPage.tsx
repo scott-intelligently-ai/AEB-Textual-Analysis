@@ -20,6 +20,7 @@ import {
 import { fetcher, send } from "@/lib/client/api";
 import type { PageSummary, UploadSummary } from "@/lib/client/types";
 import { isBusy } from "@/components/library/UploadPanel";
+import { isDirectTextUpload } from "@/lib/text/fileKinds";
 import { PROVIDERS, PROVIDER_LABELS, type Provider } from "@/lib/ai/providers";
 import { revealSelection } from "@/lib/client/dom";
 import {
@@ -45,6 +46,7 @@ export function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
 }
 
 function Preparing({ upload }: { upload: UploadSummary }) {
+  const direct = isDirectTextUpload(upload);
   return (
     <>
       <PageHeader
@@ -58,10 +60,15 @@ function Preparing({ upload }: { upload: UploadSummary }) {
         }
       />
       {upload.status === "error" ? (
-        <Notice tone="red">{upload.error ?? "This scan could not be prepared."}</Notice>
+        <Notice tone="red">
+          {upload.error ?? (direct ? "This file could not be read." : "This scan could not be prepared.")}
+        </Notice>
       ) : (
         <Notice tone="indigo">
-          <Spinner className="size-3.5" /> Preparing the pages. This page updates on its own.
+          <Spinner className="size-3.5" />{" "}
+          {direct
+            ? "Reading the text. This page updates on its own."
+            : "Preparing the pages. This page updates on its own."}
         </Notice>
       )}
     </>
@@ -90,6 +97,7 @@ function Review({ upload }: { upload: UploadSummary }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
 
   const dirty = draft !== page.ocrText;
+  const direct = !page.hasImage;
   const working = isWorking(page);
   const uncertain = countUncertain(draft);
   const allDone = upload.pages.every((p) => p.ocrStatus === "done");
@@ -180,13 +188,23 @@ function Review({ upload }: { upload: UploadSummary }) {
       <PageHeader
         title={upload.filename}
         description={
-          <>
-            Check each page of converted text against its image and correct any misread words. A
-            misread word changes term counts, so this is worth doing before analysis.{" "}
-            <Link href="/" className="font-medium text-indigo-700 hover:underline">
-              Back to documents
-            </Link>
-          </>
+          direct ? (
+            <>
+              This file was read directly, so there is no page image to compare. Check the text,
+              then create the document.{" "}
+              <Link href="/" className="font-medium text-indigo-700 hover:underline">
+                Back to documents
+              </Link>
+            </>
+          ) : (
+            <>
+              Check each page of converted text against its image and correct any misread words. A
+              misread word changes term counts, so this is worth doing before analysis.{" "}
+              <Link href="/" className="font-medium text-indigo-700 hover:underline">
+                Back to documents
+              </Link>
+            </>
+          )
         }
         actions={
           <Button
@@ -204,7 +222,7 @@ function Review({ upload }: { upload: UploadSummary }) {
       {upload.documents.length > 0 ? (
         <div className="mb-4">
           <Notice tone="indigo">
-            A document has already been created from this scan (
+            A document has already been created from this {direct ? "file" : "scan"} (
             {upload.documents.map((document, i) => (
               <span key={document.id}>
                 {i > 0 ? ", " : ""}
@@ -260,29 +278,31 @@ function Review({ upload }: { upload: UploadSummary }) {
         </Button>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-2">
-            <p className="text-sm font-medium text-zinc-900">
-              Page {page.pageNumber} of {upload.pages.length}
-            </p>
-            <Button size="sm" variant="ghost" onClick={() => setZoomed(!zoomed)}>
-              {zoomed ? "Fit to width" : "Zoom in"}
-            </Button>
-          </div>
-          <div className="max-h-[75vh] overflow-auto bg-zinc-100 p-3">
-            {/* eslint-disable-next-line @next/next/no-img-element -- served from the local API, not optimisable */}
-            <img
-              src={`/api/pages/${page.id}/image`}
-              alt={`Scan of page ${page.pageNumber}`}
-              className={cx("rounded shadow-sm", zoomed ? "w-[170%] max-w-none" : "w-full")}
-            />
-          </div>
-        </Card>
+      <div className={cx("grid gap-4", direct ? "" : "lg:grid-cols-2")}>
+        {direct ? null : (
+          <Card className="overflow-hidden">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-2">
+              <p className="text-sm font-medium text-zinc-900">
+                Page {page.pageNumber} of {upload.pages.length}
+              </p>
+              <Button size="sm" variant="ghost" onClick={() => setZoomed(!zoomed)}>
+                {zoomed ? "Fit to width" : "Zoom in"}
+              </Button>
+            </div>
+            <div className="max-h-[75vh] overflow-auto bg-zinc-100 p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element -- served from the local API, not optimisable */}
+              <img
+                src={`/api/pages/${page.id}/image`}
+                alt={`Scan of page ${page.pageNumber}`}
+                className={cx("rounded shadow-sm", zoomed ? "w-[170%] max-w-none" : "w-full")}
+              />
+            </div>
+          </Card>
+        )}
 
         <Card className="flex flex-col">
           <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-2">
-            <p className="text-sm font-medium text-zinc-900">Converted text</p>
+            <p className="text-sm font-medium text-zinc-900">{direct ? "Text" : "Converted text"}</p>
             {working ? (
               <Badge tone="indigo">
                 <Spinner className="size-3" /> Converting
@@ -300,7 +320,13 @@ function Review({ upload }: { upload: UploadSummary }) {
               </button>
             ) : null}
             <span className="ml-auto text-xs text-zinc-500">
-              {dirty ? "Unsaved changes" : page.ocrModel ? `Converted by ${page.ocrModel}` : ""}
+              {dirty
+                ? "Unsaved changes"
+                : page.ocrModel
+                  ? `Converted by ${page.ocrModel}`
+                  : direct
+                    ? "Read from the file"
+                    : ""}
             </span>
           </div>
           {page.ocrStatus === "error" ? (
@@ -325,26 +351,28 @@ function Review({ upload }: { upload: UploadSummary }) {
             <Button variant="primary" disabled={!dirty} busy={saving} onClick={() => void save()}>
               Save page
             </Button>
-            <div className="ml-auto flex items-center gap-2">
-              <label className="flex items-center gap-1.5 text-xs text-zinc-600">
-                Convert with
-                <select
-                  value={provider}
-                  onChange={(event) => setProvider(event.target.value as Provider | "")}
-                  className="rounded-md border-0 bg-white py-1 pr-7 pl-2 text-xs text-zinc-900 ring-1 ring-zinc-300 ring-inset focus:ring-2 focus:ring-indigo-600"
-                >
-                  <option value="">Default provider</option>
-                  {PROVIDERS.map((value) => (
-                    <option key={value} value={value}>
-                      {PROVIDER_LABELS[value]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <Button size="sm" disabled={working} onClick={rerun}>
-                <RefreshIcon /> Run again
-              </Button>
-            </div>
+            {direct ? null : (
+              <div className="ml-auto flex items-center gap-2">
+                <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+                  Convert with
+                  <select
+                    value={provider}
+                    onChange={(event) => setProvider(event.target.value as Provider | "")}
+                    className="rounded-md border-0 bg-white py-1 pr-7 pl-2 text-xs text-zinc-900 ring-1 ring-zinc-300 ring-inset focus:ring-2 focus:ring-indigo-600"
+                  >
+                    <option value="">Default provider</option>
+                    {PROVIDERS.map((value) => (
+                      <option key={value} value={value}>
+                        {PROVIDER_LABELS[value]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button size="sm" disabled={working} onClick={rerun}>
+                  <RefreshIcon /> Run again
+                </Button>
+              </div>
+            )}
           </div>
         </Card>
       </div>

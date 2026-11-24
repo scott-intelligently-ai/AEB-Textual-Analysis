@@ -405,7 +405,7 @@ function Discover({
                 </Link>
               }
             >
-              Upload a scan and create a document from it first.
+              Upload a file and create a document from it first.
             </EmptyState>
           ) : (
             <Viewer

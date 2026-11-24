@@ -23,6 +23,7 @@
     "@supabase/supabase-js": "^2.119.2",
     "ai": "^7.0.181",
     "drizzle-orm": "^0.45.4",
+    "mammoth": "^1.13.0",
     "next": "16.4.6",
     "pdf-to-img": "^7.0.2",
     "postgres": "^4.1.1",
@@ -31,6 +32,7 @@
     "sharp": "^0.35.5",
     "swr": "^2.5.1",
     "tsx": "^4.23.15",
+    "word-extractor": "^1.0.4",
     "zod": "^4.6.7"
   },
   "devDependencies": {

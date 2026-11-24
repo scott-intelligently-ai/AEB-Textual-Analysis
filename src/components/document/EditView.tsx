@@ -30,13 +30,14 @@ export function EditView({ document, terms, annotations }: Props) {
   const [cursor, setCursor] = useState(0);
   const [saving, setSaving] = useState(false);
   const [splitAt, setSplitAt] = useState<number | null>(null);
-  const [showPages, setShowPages] = useState(document.sourcePages.length > 0);
+  const scans = document.sourcePages.filter((page) => page.hasImage);
+  const [showPages, setShowPages] = useState(scans.length > 0);
   const [pageIndex, setPageIndex] = useState(0);
 
   const dirty = draft !== document.text;
   const uncertain = countUncertain(draft);
   const canSplit = !dirty && cursor > 0 && cursor < draft.length;
-  const page = document.sourcePages[Math.min(pageIndex, document.sourcePages.length - 1)];
+  const page = scans[Math.min(pageIndex, Math.max(scans.length - 1, 0))];
 
   async function save() {
     const cleared = rebaseSpans(document.text, draft, annotations, terms).dropped.length;
@@ -110,7 +111,7 @@ export function EditView({ document, terms, annotations }: Props) {
             </Badge>
           </button>
         ) : null}
-        {document.sourcePages.length > 0 ? (
+        {scans.length > 0 ? (
           <Button
             size="sm"
             variant="ghost"
@@ -147,7 +148,7 @@ export function EditView({ document, terms, annotations }: Props) {
                 {page.filename}, page {page.pageNumber}
               </p>
               <span className="text-xs text-zinc-500 tabular-nums">
-                {pageIndex + 1} of {document.sourcePages.length}
+                {pageIndex + 1} of {scans.length}
               </span>
               <Button
                 size="sm"
@@ -159,7 +160,7 @@ export function EditView({ document, terms, annotations }: Props) {
               </Button>
               <Button
                 size="sm"
-                disabled={pageIndex >= document.sourcePages.length - 1}
+                disabled={pageIndex >= scans.length - 1}
                 onClick={() => setPageIndex(pageIndex + 1)}
                 aria-label="Next page image"
               >
