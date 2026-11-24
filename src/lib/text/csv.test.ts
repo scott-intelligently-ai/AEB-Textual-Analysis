@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { guessCommaMode, parseCsv, parseTermList, toCsv } from "./csv";
+import { guessCommaMode, importUsesColumns, parseCsv, parseTermList, toCsv } from "./csv";
+import { TERM_IMPORT_TEMPLATE } from "./explanations";
 import { countUncertain, nextUncertain } from "./transcription";
 
 describe("toCsv and parseCsv", () => {
@@ -55,6 +56,31 @@ describe("parseTermList", () => {
   it("collapses stray whitespace inside phrases", () => {
     expect(parseTermList("  Soviet   Union  ", "variants")).toEqual([
       { text: "Soviet Union", variants: [] },
+    ]);
+  });
+
+  it("reads variants and equivalence groups from the template columns", () => {
+    const file = [
+      "note,explanation",
+      "term,variants,equivalent_group",
+      "war,wars,",
+      "conflict,,Conflict",
+      "peace,,Conflict",
+      "freedom,freedoms; liberties,",
+    ].join("\n");
+    expect(importUsesColumns(file)).toBe(true);
+    expect(parseTermList(file, "terms")).toEqual([
+      { text: "war", variants: ["wars"] },
+      { text: "conflict", variants: [], equivalence: "Conflict" },
+      { text: "peace", variants: [], equivalence: "Conflict" },
+      { text: "freedom", variants: ["freedoms", "liberties"] },
+    ]);
+    expect(importUsesColumns(TERM_IMPORT_TEMPLATE)).toBe(true);
+    expect(parseTermList(TERM_IMPORT_TEMPLATE, "terms").map((term) => term.text)).toEqual([
+      "war",
+      "conflict",
+      "peace",
+      "freedom",
     ]);
   });
 });

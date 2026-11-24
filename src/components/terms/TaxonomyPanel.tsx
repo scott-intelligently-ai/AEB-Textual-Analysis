@@ -16,6 +16,7 @@ import {
   TextInput,
 } from "@/components/ui";
 import { errorMessage, fetcher, send } from "@/lib/client/api";
+import { EQUIVALENCE_MEANING } from "@/lib/text/explanations";
 import type { Term, TermCategory, TermEquivalence } from "@/lib/client/types";
 
 export function categoryLabel(category: TermCategory, categories: TermCategory[]): string {
@@ -53,8 +54,7 @@ export function TaxonomyPanel({ terms }: { terms: Term[] }) {
           <div>
             <h2 className="text-sm font-semibold text-zinc-900">Equivalent terms</h2>
             <p className="mt-1 text-xs leading-5 text-zinc-500">
-              Terms in one group are counted together on the Tones page when you choose that view.
-              A term belongs to at most one group.
+              {EQUIVALENCE_MEANING} A term belongs to at most one group.
             </p>
           </div>
           <Button size="sm" onClick={() => setEditingGroup("new")}>

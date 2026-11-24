@@ -6,6 +6,7 @@ import { DownloadIcon } from "@/components/icons";
 import { Button, Card, EmptyState, ErrorBlock, LoadingBlock, Notice, cx } from "@/components/ui";
 import { fetcher } from "@/lib/client/api";
 import type { DistributionGroup, DocumentSummary, ToneDistribution } from "@/lib/client/types";
+import { EQUIVALENCE_MEANING, VARIANT_MEANING } from "@/lib/text/explanations";
 
 const GROUPS: { id: DistributionGroup; label: string; column: string }[] = [
   { id: "term", label: "Individual term", column: "Term" },
@@ -46,13 +47,19 @@ export function ToneDistributionPanel() {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Tone distribution</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-600">
-            How the tones are spread across terms. Every occurrence counts, and an occurrence with
-            no tone of its own uses the default tone. A term in more than one category is counted
-            in each, so category totals can add up to more than the overall total. Equivalent terms
-            are counted together; a term that is not in a group appears on its own. A category
-            includes its subcategories, while a subcategory counts only the terms assigned to it.
-          </p>
+          <div className="mt-1 max-w-3xl space-y-2 text-sm leading-6 text-zinc-600">
+            <p>
+              How the tones are spread across terms. Every occurrence counts, and an occurrence
+              with no tone of its own uses the default tone. {VARIANT_MEANING}
+            </p>
+            <p>
+              {EQUIVALENCE_MEANING} A term that is not in a group appears on its own in that view. A
+              category includes its subcategories, while a subcategory counts only the terms
+              assigned to it. A term in more than one category is counted in each, so category
+              totals can add up to more than the overall total. The downloaded CSV begins with the
+              same explanation for the view you have selected.
+            </p>
+          </div>
         </div>
         {table.data && table.data.rows.length > 0 ? (
           <a

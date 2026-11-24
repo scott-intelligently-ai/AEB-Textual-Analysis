@@ -1,6 +1,6 @@
 import { inArray } from "drizzle-orm";
 import { getDb, schema } from "../db";
-import { toCsv } from "../lib/text/csv";
+import { csvWithNote, distributionDownloadNote } from "../lib/text/explanations";
 import {
   DISTRIBUTION_GROUPS,
   buildToneDistribution,
@@ -71,5 +71,6 @@ export async function toneDistributionCsv(
   group: DistributionGroup,
   documentIds?: number[],
 ): Promise<string> {
-  return toCsv(distributionCsv(await getToneDistribution(group, documentIds)));
+  const distribution = await getToneDistribution(group, documentIds);
+  return csvWithNote(distributionCsv(distribution), distributionDownloadNote(group));
 }

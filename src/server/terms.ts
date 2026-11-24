@@ -2,10 +2,13 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { buildMatcher, normalizeTerm, spanKey, type TermPattern } from "../lib/text/match";
 import { badRequest, notFound } from "./http";
+import { createEquivalence, listEquivalences, setTermEquivalence } from "./taxonomy";
 
 export interface TermInput {
   text: string;
   variants?: string[];
+  /** Name of an equivalence group. Empty means the term stands alone. */
+  equivalence?: string | null;
 }
 
 const tidy = (value: string) => value.trim().split(/\s+/).join(" ");
@@ -109,11 +112,13 @@ export async function deleteTerm(id: number): Promise<void> {
 export interface ImportResult {
   added: schema.Term[];
   skipped: { text: string; reason: string }[];
+  /** Equivalence groups named in the file, with the terms placed in each one. */
+  groups: { name: string; terms: string[] }[];
 }
 
 export async function importTerms(inputs: TermInput[]): Promise<ImportResult> {
   const db = await getDb();
-  const result: ImportResult = { added: [], skipped: [] };
+  const result: ImportResult = { added: [], skipped: [], groups: [] };
   for (const input of inputs) {
     try {
       const [term] = await db.insert(schema.terms).values(await prepare(input)).returning();
@@ -125,8 +130,41 @@ export async function importTerms(inputs: TermInput[]): Promise<ImportResult> {
       });
     }
   }
+  await assignImportedGroups(inputs, result);
   await pruneOrphanAnnotations();
   return result;
+}
+
+/** Places imported terms into the equivalence groups named in the file. */
+async function assignImportedGroups(inputs: TermInput[], result: ImportResult): Promise<void> {
+  const wanted = inputs.filter((input) => tidy(input.equivalence ?? ""));
+  if (wanted.length === 0) return;
+  const terms = await listTerms();
+  const byText = new Map(terms.map((term) => [normalizeTerm(term.text), term]));
+  const groups = await listEquivalences();
+  const byGroup = new Map(groups.map((group) => [normalizeTerm(group.name), group]));
+  const placed = new Map<string, { name: string; terms: string[] }>();
+
+  for (const input of wanted) {
+    const term = byText.get(normalizeTerm(tidy(input.text)));
+    if (!term) continue;
+    const groupName = tidy(input.equivalence ?? "");
+    let group = byGroup.get(normalizeTerm(groupName));
+    if (!group) {
+      group = await createEquivalence(groupName, []);
+      byGroup.set(normalizeTerm(group.name), group);
+    }
+    if (term.equivalenceId !== group.id) await setTermEquivalence(term.id, group.id);
+    term.equivalenceId = group.id;
+    const entry = placed.get(group.name) ?? { name: group.name, terms: [] };
+    entry.terms.push(term.text);
+    placed.set(group.name, entry);
+    const skipped = result.skipped.find((item) => normalizeTerm(item.text) === normalizeTerm(term.text));
+    if (skipped) {
+      skipped.reason = `${skipped.reason} It was placed in the equivalence group "${group.name}".`;
+    }
+  }
+  result.groups = [...placed.values()];
 }
 
 /**

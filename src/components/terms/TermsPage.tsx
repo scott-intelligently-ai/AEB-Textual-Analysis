@@ -6,7 +6,7 @@ import useSWR from "swr";
 import { DiscoverPage } from "@/components/discover/DiscoverPage";
 import { TaxonomyPanel, categoryLabel } from "@/components/terms/TaxonomyPanel";
 import { useFeedback } from "@/components/feedback";
-import { PencilIcon, PlusIcon, SparklesIcon, TrashIcon, UploadIcon } from "@/components/icons";
+import { DownloadIcon, PencilIcon, PlusIcon, SparklesIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import {
   Badge,
   Button,
@@ -21,9 +21,10 @@ import {
   TextArea,
   TextInput,
 } from "@/components/ui";
-import { errorMessage, fetcher, send } from "@/lib/client/api";
+import { downloadText, errorMessage, fetcher, send } from "@/lib/client/api";
 import type { FrequencyTable, ImportResult, Term, TermCategory, TermEquivalence } from "@/lib/client/types";
-import { guessCommaMode, parseTermList, type CommaMode } from "@/lib/text/csv";
+import { guessCommaMode, importUsesColumns, parseTermList, type CommaMode } from "@/lib/text/csv";
+import { EQUIVALENCE_MEANING, TERM_IMPORT_TEMPLATE, VARIANT_MEANING } from "@/lib/text/explanations";
 
 const splitVariants = (value: string) =>
   value
@@ -101,7 +102,17 @@ export function TermsPage() {
     <>
       <PageHeader
         title="Terms"
-        description="The words and phrases the analysis counts and highlights. Matching ignores case and only matches whole words, so “tax” does not match “taxes”; list other forms as variants to count them under the same term. A term can sit in any number of categories, and terms you mark as equivalent can be counted together."
+        description={
+          <>
+            <span className="block">
+              The words and phrases the analysis counts and highlights. Matching ignores case and
+              only matches whole words, so “tax” does not match “taxes”. A term can sit in any
+              number of categories.
+            </span>
+            <span className="mt-2 block">{VARIANT_MEANING}</span>
+            <span className="mt-2 block">{EQUIVALENCE_MEANING}</span>
+          </>
+        }
         actions={
           <>
             <Button onClick={() => router.push("/terms?discover=1")}>
@@ -133,12 +144,12 @@ export function TermsPage() {
           </label>
           <label className="min-w-64 flex-[2]">
             <span className="mb-1 block text-xs font-medium text-zinc-600">
-              Variants counted as the same term (optional, separated by commas)
+              Variants: other spellings or plurals, separated by commas
             </span>
             <TextInput
               value={variants}
               onChange={(event) => setVariants(event.target.value)}
-              placeholder="e.g. freedoms, liberty"
+              placeholder="e.g. wars"
             />
           </label>
           <Button type="submit" variant="primary" busy={adding} disabled={!text.trim()}>
@@ -315,12 +326,14 @@ function EditTermDialog({
         </label>
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-zinc-600">
-            Variants (separated by commas)
+            Variants: other spellings or plurals, separated by commas
           </span>
           <TextInput value={variants} onChange={(event) => setVariants(event.target.value)} />
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-zinc-600">Count together with</span>
+          <span className="mb-1 block text-xs font-medium text-zinc-600">
+            Equivalent group (optional; the terms stay separate)
+          </span>
           <select
             value={equivalenceId}
             onChange={(event) =>
@@ -413,9 +426,10 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
 
+  const usesColumns = importUsesColumns(input);
   const effectiveMode = mode ?? guessCommaMode(input);
   const parsed = parseTermList(input, effectiveMode);
-  const hasCommas = input.includes(",");
+  const hasCommas = input.includes(",") && !usesColumns;
 
   async function readFile(file: File | undefined) {
     if (!file) return;
@@ -453,6 +467,15 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
               ? ` ${result.skipped.length} ${result.skipped.length === 1 ? "was" : "were"} not added:`
               : ""}
           </p>
+          {result.groups.length > 0 ? (
+            <p>
+              Equivalence groups:{" "}
+              {result.groups
+                .map((group) => `${group.name} (${group.terms.join(", ")})`)
+                .join("; ")}
+              . Those terms stay separate and can be counted together from the Tones page.
+            </p>
+          ) : null}
           {result.skipped.length > 0 ? (
             <ul className="space-y-1 rounded-lg bg-amber-50 px-3 py-2 text-amber-900 ring-1 ring-amber-200 ring-inset">
               {result.skipped.map((item) => (
@@ -481,25 +504,39 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p>Paste your list with one term per line, or choose a CSV or text file.</p>
-          <label className="cursor-pointer rounded-md bg-white px-2.5 py-1 text-xs font-medium text-zinc-800 shadow-sm ring-1 ring-zinc-300 ring-inset hover:bg-zinc-50">
-            Choose file
-            <input
-              type="file"
-              accept=".csv,.txt,text/csv,text/plain"
-              className="sr-only"
-              onChange={(event) => void readFile(event.target.files?.[0])}
-            />
-          </label>
+          <p>
+            {VARIANT_MEANING} {EQUIVALENCE_MEANING} Use the template for both, or paste one term per
+            line.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => downloadText("term-import-template.csv", TERM_IMPORT_TEMPLATE)}>
+              <DownloadIcon /> Download a template
+            </Button>
+            <label className="cursor-pointer rounded-md bg-white px-2.5 py-1 text-xs font-medium text-zinc-800 shadow-sm ring-1 ring-zinc-300 ring-inset hover:bg-zinc-50">
+              Choose file
+              <input
+                type="file"
+                accept=".csv,.txt,text/csv,text/plain"
+                className="sr-only"
+                onChange={(event) => void readFile(event.target.files?.[0])}
+              />
+            </label>
+          </div>
         </div>
         <TextArea
           rows={8}
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder={"freedom, freedoms, liberty\nSoviet Union\npeace"}
+          placeholder={"term,variants,equivalent_group\nwar,wars,\nconflict,,Conflict\npeace,,Conflict"}
           aria-label="Terms to import"
           className="font-mono"
         />
+        {usesColumns ? (
+          <p className="text-xs leading-5 text-zinc-500">
+            This file uses the template columns. Variants stay in the variants column, and
+            equivalent_group names the group for separate terms that can be counted together.
+          </p>
+        ) : null}
         {hasCommas ? (
           <fieldset className="space-y-1.5">
             <legend className="mb-1 text-xs font-medium text-zinc-600">
@@ -539,6 +576,7 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
                   {term.variants.map((variant) => (
                     <Badge key={variant}>{variant}</Badge>
                   ))}
+                  {term.equivalence ? <Badge tone="indigo">{term.equivalence}</Badge> : null}
                 </li>
               ))}
             </ul>
