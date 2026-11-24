@@ -128,7 +128,7 @@ export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
             </Link>
           }
         >
-          Upload a scan and create a document from it first.
+          Upload a file and create a document from it first.
         </EmptyState>
       ) : (
         <div className="grid gap-6 lg:grid-cols-[16rem_minmax(0,1fr)]">

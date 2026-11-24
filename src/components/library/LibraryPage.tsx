@@ -18,12 +18,12 @@ export function LibraryPage() {
     <>
       <PageHeader
         title="Documents"
-        description="Upload scans, check the converted text against the page images, then create documents to analyse. Documents can be combined or split so that each one holds exactly one speech."
+        description="Upload a scan, a Word document, an RTF file, or plain text. Check the text, then create a document to analyse. Documents can be combined or split so that each one holds exactly one speech."
       />
 
-      <section aria-labelledby="scans-heading" className="mb-10">
-        <h2 id="scans-heading" className="mb-3 text-sm font-semibold text-zinc-900">
-          Scans
+      <section aria-labelledby="uploads-heading" className="mb-10">
+        <h2 id="uploads-heading" className="mb-3 text-sm font-semibold text-zinc-900">
+          Uploads
         </h2>
         <UploadDropzone />
         {uploads.error ? (

@@ -48,7 +48,7 @@ export function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
       title: "Delete this document?",
       body: (
         <>
-          <strong>{current.title}</strong> and its tone tags will be deleted. The original scan is
+          <strong>{current.title}</strong> and its tone tags will be deleted. The uploaded file is
           kept.
         </>
       ),

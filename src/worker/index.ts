@@ -42,7 +42,7 @@ async function main(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
     }
   }
-  console.log("OCR worker watching for scans.");
+  console.log("Worker watching for uploads.");
   while (!stopping) {
     try {
       const rendered = await renderNextUpload();

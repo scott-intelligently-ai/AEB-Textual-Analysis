@@ -26,6 +26,8 @@ export interface SourcePage {
   uploadId: number;
   pageNumber: number;
   filename: string;
+  /** False when this page's text was read from a file and there is no scan to show. */
+  hasImage: boolean;
 }
 
 export interface DocumentDetail {
@@ -107,11 +109,23 @@ export async function getDocument(id: number): Promise<DocumentDetail> {
             uploadId: schema.pages.uploadId,
             pageNumber: schema.pages.pageNumber,
             filename: schema.uploads.filename,
+            storagePath: schema.pages.storagePath,
           })
           .from(schema.pages)
           .innerJoin(schema.uploads, eq(schema.uploads.id, schema.pages.uploadId))
           .where(inArray(schema.pages.id, document.sourcePageIds));
-  const byId = new Map(pages.map((page) => [page.id, page]));
+  const byId = new Map(
+    pages.map((page) => [
+      page.id,
+      {
+        id: page.id,
+        uploadId: page.uploadId,
+        pageNumber: page.pageNumber,
+        filename: page.filename,
+        hasImage: page.storagePath.length > 0,
+      },
+    ]),
+  );
   const tags = (await tagsByDocument()).get(id) ?? [];
   return {
     id: document.id,

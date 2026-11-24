@@ -8,9 +8,8 @@ import { Badge, Button, Card, IconButton, Spinner, cx } from "@/components/ui";
 import { errorMessage, send } from "@/lib/client/api";
 import { uploadWithTicket } from "@/lib/client/storage";
 import type { UploadSummary } from "@/lib/client/types";
+import { isDirectTextUpload, UPLOAD_ACCEPT } from "@/lib/text/fileKinds";
 import { countUncertain } from "@/lib/text/transcription";
-
-const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.avif";
 
 interface UploadTicket {
   id: number;
@@ -83,11 +82,10 @@ export function UploadDropzone() {
       >
         <UploadIcon className="size-7 text-zinc-400" />
         <div>
-          <p className="text-sm font-medium text-zinc-900">
-            Drop scanned documents here, or choose files
-          </p>
+          <p className="text-sm font-medium text-zinc-900">Drop documents here, or choose files</p>
           <p className="mt-1 text-xs text-zinc-500">
-            PDF or image (PNG, JPEG, WebP, GIF, TIFF, AVIF). Each page is converted to text by AI.
+            PDF or image (PNG, JPEG, WebP, GIF, TIFF, AVIF), Word (.doc, .docx), RTF, or plain text.
+            Scans are converted by AI. Word, RTF, and text files are read directly.
           </p>
         </div>
         <Button variant="primary" busy={uploading} onClick={() => input.current?.click()}>
@@ -96,10 +94,10 @@ export function UploadDropzone() {
         <input
           ref={input}
           type="file"
-          accept={ACCEPT}
+          accept={UPLOAD_ACCEPT}
           multiple
           className="sr-only"
-          aria-label="Choose scanned documents to upload"
+          aria-label="Choose documents to upload"
           onChange={(event) => void upload([...(event.target.files ?? [])])}
         />
       </div>
@@ -122,6 +120,7 @@ export function UploadRow({ upload }: { upload: UploadSummary }) {
   const done = upload.pages.filter((page) => page.ocrStatus === "done").length;
   const failed = upload.pages.filter((page) => page.ocrStatus === "error").length;
   const busy = isBusy(upload);
+  const direct = isDirectTextUpload(upload);
   const uncertain = upload.pages.reduce((sum, page) => sum + countUncertain(page.ocrText), 0);
   const preparing = total === 0 && (upload.status === "queued" || upload.status === "rendering");
   const ready = total > 0 && done === total && upload.status === "ready";
@@ -151,14 +150,19 @@ export function UploadRow({ upload }: { upload: UploadSummary }) {
 
   async function remove() {
     const ok = await confirm({
-      title: "Delete this scan?",
-      body: (
+      title: direct ? "Delete this file?" : "Delete this scan?",
+      body: direct ? (
+        <>
+          <strong>{upload.filename}</strong> will be deleted. Documents already created from it keep
+          their text.
+        </>
+      ) : (
         <>
           <strong>{upload.filename}</strong> and its page images will be deleted. Documents already
           created from it keep their text but lose the page images used for checking.
         </>
       ),
-      confirmLabel: "Delete scan",
+      confirmLabel: direct ? "Delete file" : "Delete scan",
       danger: true,
     });
     if (!ok) return;
@@ -176,16 +180,20 @@ export function UploadRow({ upload }: { upload: UploadSummary }) {
           <p className="truncate text-sm font-medium text-zinc-900">{upload.filename}</p>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
             <span>
-              {total} page{total === 1 ? "" : "s"}
+              {direct && total === 0
+                ? "Text file"
+                : direct
+                  ? "Text extracted"
+                  : `${total} page${total === 1 ? "" : "s"}`}
             </span>
             {busy ? (
               <Badge tone="indigo">
                 <Spinner className="size-3" />
-                {preparing ? "Preparing pages" : `Converting ${done} of ${total}`}
+                {preparing ? (direct ? "Reading the file" : "Preparing pages") : `Converting ${done} of ${total}`}
               </Badge>
             ) : upload.status === "error" ? (
               <Badge tone="red">
-                <AlertIcon /> {upload.error ?? "This scan could not be prepared."}
+                <AlertIcon /> {upload.error ?? (direct ? "This file could not be read." : "This scan could not be prepared.")}
               </Badge>
             ) : upload.status === "awaiting_file" ? (
               <Badge tone="amber">Upload did not finish</Badge>
@@ -239,7 +247,7 @@ export function UploadRow({ upload }: { upload: UploadSummary }) {
               href={`/uploads/${upload.id}`}
               className="inline-flex items-center rounded-md bg-white px-2.5 py-1 text-xs font-medium text-zinc-800 shadow-sm ring-1 ring-zinc-300 ring-inset hover:bg-zinc-50"
             >
-              Review pages
+              {direct ? "Review text" : "Review pages"}
             </Link>
           ) : null}
           <Button
@@ -248,7 +256,13 @@ export function UploadRow({ upload }: { upload: UploadSummary }) {
             disabled={!ready}
             busy={working === "create"}
             onClick={createDocument}
-            title={ready ? undefined : "Available once every page has been converted"}
+            title={
+              ready
+                ? undefined
+                : direct
+                  ? "Available once the text has been read"
+                  : "Available once every page has been converted"
+            }
           >
             {upload.documents.length === 0 ? "Create document" : "Create another"}
           </Button>

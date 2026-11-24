@@ -43,7 +43,7 @@ export function DocumentsPanel({ documents }: { documents: DocumentSummary[] }) 
         <>
           <strong>{document.title}</strong> and its{" "}
           {document.annotationCount > 0 ? `${document.annotationCount} tone tags` : "text"} will be
-          deleted. The original scan is kept.
+          deleted. The uploaded file is kept.
         </>
       ),
       confirmLabel: "Delete document",
@@ -61,8 +61,8 @@ export function DocumentsPanel({ documents }: { documents: DocumentSummary[] }) 
   if (documents.length === 0) {
     return (
       <EmptyState title="No documents yet">
-        Upload a scan above. Once its pages are converted and checked, create a document from it to
-        start counting terms and tagging tone.
+        Upload a file above. When its text is ready, create a document from it to start counting
+        terms and tagging tone.
       </EmptyState>
     );
   }

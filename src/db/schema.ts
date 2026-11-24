@@ -48,6 +48,7 @@ export const pages = pgTable(
       .notNull()
       .references(() => uploads.id, { onDelete: "cascade" }),
     pageNumber: integer("page_number").notNull(),
+    /** JPEG of a scanned page. Empty when the text was read from the file itself. */
     storagePath: text("storage_path").notNull(),
     ocrText: text("ocr_text").notNull().default(""),
     ocrStatus: text("ocr_status", { enum: OCR_STATUSES }).notNull().default("pending"),
