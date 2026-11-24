@@ -42,6 +42,7 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
   const [termFilter, setTermFilter] = useState<number | null>(null);
   const [asking, setAsking] = useState<string | null>(null);
   const [bulk, setBulk] = useState<"suggest" | "confirm" | "discard" | null>(null);
+  const [lastRun, setLastRun] = useState<AiToneResult | null>(null);
 
   const occurrences = useMemo(() => findOccurrences(document.text, terms), [document.text, terms]);
   const byKey = useMemo(() => new Map(occurrences.map((o) => [spanKey(o), o])), [occurrences]);
@@ -174,19 +175,11 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
 
   async function suggestAll() {
     setBulk("suggest");
+    setLastRun(null);
     try {
-      const result = await send<AiToneResult>(
-        "POST",
-        `/api/documents/${document.id}/ai-tone`,
-        {},
+      setLastRun(
+        await send<AiToneResult>("POST", `/api/documents/${document.id}/ai-tone`, {}),
       );
-      const parts = [
-        `The AI suggested a tone for ${result.suggested} occurrence${result.suggested === 1 ? "" : "s"}.`,
-      ];
-      if (result.skipped > 0) parts.push(`${result.skipped} you had already set were left alone.`);
-      if (result.missed > 0) parts.push(`${result.missed} got no usable answer.`);
-      if (result.suggested > 0) parts.push("Review them, then confirm or change each one.");
-      notify(parts.join(" "));
     } catch (error) {
       notifyError(error);
     } finally {
@@ -205,6 +198,7 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
       if (!ok) return;
     }
     setBulk(action);
+    setLastRun(null);
     try {
       await send("POST", `/api/documents/${document.id}/annotations`, { action });
       notify(
@@ -343,6 +337,35 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
         {occurrences.length === 0 ? (
           <div className="mb-3">
             <Notice>None of the terms on your list appear in this document.</Notice>
+          </div>
+        ) : null}
+
+        {lastRun ? (
+          <div className="mb-3">
+            <Notice tone={lastRun.missed > 0 ? "amber" : "indigo"}>
+              <div className="flex items-start gap-3">
+                <p className="flex-1">
+                  The AI suggested a tone for {lastRun.suggested} occurrence
+                  {lastRun.suggested === 1 ? "" : "s"}.
+                  {lastRun.skipped > 0
+                    ? ` ${lastRun.skipped} that you had already set ${lastRun.skipped === 1 ? "was" : "were"} left alone.`
+                    : ""}
+                  {lastRun.missed > 0
+                    ? ` ${lastRun.missed} got no usable answer and ${lastRun.missed === 1 ? "is" : "are"} unchanged; run it again to retry.`
+                    : ""}
+                  {lastRun.suggested > 0
+                    ? " Suggestions have a dashed outline. Check them, then confirm them all or change individual ones."
+                    : ""}
+                </p>
+                <button
+                  type="button"
+                  className="shrink-0 text-xs font-medium underline"
+                  onClick={() => setLastRun(null)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </Notice>
           </div>
         ) : null}
 
@@ -551,7 +574,9 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
             </p>
             {aiCount > 0 ? (
               <p>
-                <Badge tone="indigo">{aiCount} AI suggestions to confirm</Badge>
+                <Badge tone="indigo">
+                  Includes {aiCount} unconfirmed AI suggestion{aiCount === 1 ? "" : "s"}
+                </Badge>
               </p>
             ) : null}
           </div>
