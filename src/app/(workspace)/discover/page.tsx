@@ -1,5 +1,5 @@
-import { DiscoverPage } from "@/components/discover/DiscoverPage";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <DiscoverPage />;
+  redirect("/terms?discover=1");
 }

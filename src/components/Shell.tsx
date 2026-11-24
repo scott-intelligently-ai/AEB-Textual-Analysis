@@ -37,7 +37,7 @@ function Frame({
       <aside className="sticky top-0 flex h-screen w-56 shrink-0 flex-col border-r border-zinc-200 bg-white px-3 py-5">
         <div className="mb-6 px-2.5">
           <p className="text-sm font-semibold tracking-tight text-zinc-900">Speech Text Analysis</p>
-          <p className="mt-0.5 text-xs text-zinc-500">Terms, frequency, and tone</p>
+          <p className="mt-0.5 text-xs text-zinc-500">Terms and tone</p>
         </div>
         <nav aria-label="Main">{nav}</nav>
         {account}

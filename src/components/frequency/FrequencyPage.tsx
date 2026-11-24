@@ -20,7 +20,7 @@ import { toCsv } from "@/lib/text/csv";
 
 type Sort = "list" | "total";
 
-export function FrequencyPage() {
+export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
   const documents = useSWR<DocumentSummary[]>("/api/documents", fetcher);
   // null means "all documents", including any added later.
   const [chosen, setChosen] = useState<number[] | null>(null);
@@ -61,27 +61,43 @@ export function FrequencyPage() {
       : data.rows
     : [];
 
+  const exportActions =
+    data && data.rows.length > 0 ? (
+      <>
+        <Button onClick={() => exportCounts(data)}>
+          <DownloadIcon /> Export counts (CSV)
+        </Button>
+        <a
+          href={`/api/export/occurrences${query}`}
+          className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 shadow-sm ring-1 ring-zinc-300 ring-inset hover:bg-zinc-50"
+        >
+          <DownloadIcon /> Export every occurrence with its tone
+        </a>
+      </>
+    ) : null;
+
   return (
     <>
-      <PageHeader
-        title="Frequency"
-        description="How often each term appears, in every document or only the ones you choose. Variants are counted under their term."
-        actions={
-          data && data.rows.length > 0 ? (
-            <>
-              <Button onClick={() => exportCounts(data)}>
-                <DownloadIcon /> Export counts (CSV)
-              </Button>
-              <a
-                href={`/api/export/occurrences${query}`}
-                className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 shadow-sm ring-1 ring-zinc-300 ring-inset hover:bg-zinc-50"
-              >
-                <DownloadIcon /> Export every occurrence with its tone
-              </a>
-            </>
-          ) : null
-        }
-      />
+      {embedded ? (
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Frequency</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-600">
+              How often each term appears, in every document or only the ones you choose. Variants
+              are counted under their term.
+            </p>
+          </div>
+          {exportActions ? (
+            <div className="flex flex-wrap items-center gap-2">{exportActions}</div>
+          ) : null}
+        </div>
+      ) : (
+        <PageHeader
+          title="Frequency"
+          description="How often each term appears, in every document or only the ones you choose. Variants are counted under their term."
+          actions={exportActions}
+        />
+      )}
 
       {all.length === 0 ? (
         <EmptyState

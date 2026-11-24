@@ -1,10 +1,11 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useRef, useState } from "react";
 import useSWR from "swr";
+import { DiscoverPage } from "@/components/discover/DiscoverPage";
 import { useFeedback } from "@/components/feedback";
-import { PencilIcon, PlusIcon, TrashIcon, UploadIcon } from "@/components/icons";
+import { PencilIcon, PlusIcon, SparklesIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import {
   Badge,
   Button,
@@ -30,6 +31,8 @@ const splitVariants = (value: string) =>
     .filter(Boolean);
 
 export function TermsPage() {
+  const router = useRouter();
+  const discovering = useSearchParams().get("discover") === "1";
   const { notify, notifyError, confirm } = useFeedback();
   const terms = useSWR<Term[]>("/api/terms", fetcher);
   const frequency = useSWR<FrequencyTable>("/api/frequency", fetcher);
@@ -76,25 +79,35 @@ export function TermsPage() {
     }
   }
 
+  if (discovering) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => router.push("/terms")}
+          className="mb-4 text-xs font-medium text-indigo-700 hover:underline"
+        >
+          ← Terms
+        </button>
+        <DiscoverPage />
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader
         title="Terms"
-        description={
-          <>
-            The words and phrases the analysis counts and highlights. Matching ignores case and only
-            matches whole words, so “tax” does not match “taxes”; list other forms as variants to
-            count them under the same term. Not sure what you are missing?{" "}
-            <Link href="/discover" className="font-medium text-indigo-700 hover:underline">
-              Let the AI look for overlooked terms
-            </Link>
-            .
-          </>
-        }
+        description="The words and phrases the analysis counts and highlights. Matching ignores case and only matches whole words, so “tax” does not match “taxes”; list other forms as variants to count them under the same term."
         actions={
-          <Button onClick={() => setImporting(true)}>
-            <UploadIcon /> Import a list
-          </Button>
+          <>
+            <Button onClick={() => router.push("/terms?discover=1")}>
+              <SparklesIcon /> Discover terms
+            </Button>
+            <Button onClick={() => setImporting(true)}>
+              <UploadIcon /> Import a list
+            </Button>
+          </>
         }
       />
 

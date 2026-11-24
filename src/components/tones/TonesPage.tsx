@@ -21,7 +21,12 @@ import type { ToneWithUsage } from "@/lib/client/types";
 const COLOR_FIELD =
   "h-8 w-10 cursor-pointer rounded-md border-0 bg-white p-0.5 ring-1 ring-zinc-300 ring-inset";
 
-export function TonesPage() {
+export function TonesPage({
+  title = "Define tones",
+}: {
+  /** Page heading. The tone list is opened from the Tones page. */
+  title?: string;
+} = {}) {
   const { notifyError } = useFeedback();
   const tones = useSWR<ToneWithUsage[]>("/api/tones", fetcher);
 
@@ -40,7 +45,7 @@ export function TonesPage() {
   return (
     <>
       <PageHeader
-        title="Tones"
+        title={title}
         description="The tones you can give each use of a term. The colour is used for the term's text in documents. A term that has not been given a tone is shown in the default tone. The score is a number exported with each occurrence, so tone can be averaged in a spreadsheet."
       />
 

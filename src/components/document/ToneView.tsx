@@ -297,7 +297,7 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
     );
   }
   if (!defaultTone) {
-    return <Notice tone="red">No tones are defined. Add at least one on the Tones page.</Notice>;
+    return <Notice tone="red">No tones are defined. Use Define tones to add one.</Notice>;
   }
 
   const activeIndex = active ? navigable.findIndex((o) => spanKey(o) === active.key) : -1;

@@ -7,32 +7,22 @@ import useSWR from "swr";
 import { useFeedback } from "@/components/feedback";
 import { PencilIcon, TrashIcon } from "@/components/icons";
 import { RenameDialog } from "@/components/library/DocumentsPanel";
-import { ErrorBlock, IconButton, LoadingBlock, cx } from "@/components/ui";
+import { ErrorBlock, IconButton, LoadingBlock } from "@/components/ui";
 import { ApiError, fetcher, send } from "@/lib/client/api";
-import type { Annotation, DocumentDetail, Term, Tone } from "@/lib/client/types";
+import type { Annotation, DocumentDetail, Term } from "@/lib/client/types";
 import { EditView } from "./EditView";
-import { ToneView } from "./ToneView";
-
-type Tab = "tone" | "edit";
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: "tone", label: "Tone" },
-  { id: "edit", label: "Edit and split" },
-];
 
 export function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const { notify, notifyError, confirm } = useFeedback();
-  const [tab, setTab] = useState<Tab>("tone");
   const [renaming, setRenaming] = useState(false);
 
   const document = useSWR<DocumentDetail>(`/api/documents/${id}`, fetcher);
   const annotations = useSWR<Annotation[]>(`/api/documents/${id}/annotations`, fetcher);
   const terms = useSWR<Term[]>("/api/terms", fetcher);
-  const tones = useSWR<Tone[]>("/api/tones", fetcher);
 
-  const error = document.error ?? annotations.error ?? terms.error ?? tones.error;
+  const error = document.error ?? annotations.error ?? terms.error;
   if (error) {
     return (
       <div className="space-y-3">
@@ -48,7 +38,7 @@ export function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
       </div>
     );
   }
-  if (!document.data || !annotations.data || !terms.data || !tones.data) return <LoadingBlock />;
+  if (!document.data || !annotations.data || !terms.data) return <LoadingBlock />;
   const current = document.data;
 
   async function remove() {
@@ -90,38 +80,19 @@ export function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
             <TrashIcon />
           </IconButton>
         </div>
-        <div className="mt-4 flex gap-1 border-b border-zinc-200" role="tablist">
-          {TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === item.id}
-              onClick={() => setTab(item.id)}
-              className={cx(
-                "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors",
-                tab === item.id
-                  ? "border-indigo-600 text-indigo-700"
-                  : "border-transparent text-zinc-600 hover:text-zinc-900",
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        <p className="mt-2 text-sm text-zinc-600">
+          Correct the text or split this document. Assign a tone to each term on the{" "}
+          <Link
+            href={`/tones?document=${current.id}`}
+            className="font-medium text-indigo-700 hover:underline"
+          >
+            Tones
+          </Link>{" "}
+          page.
+        </p>
       </header>
 
-      {tab === "tone" ? (
-        <ToneView
-          document={current}
-          terms={terms.data}
-          tones={tones.data}
-          annotations={annotations.data}
-          mutateAnnotations={annotations.mutate}
-        />
-      ) : (
-        <EditView document={current} terms={terms.data} annotations={annotations.data} />
-      )}
+      <EditView document={current} terms={terms.data} annotations={annotations.data} />
 
       {renaming ? <RenameDialog document={current} onClose={() => setRenaming(false)} /> : null}
     </>

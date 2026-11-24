@@ -1,5 +1,5 @@
-import { FrequencyPage } from "@/components/frequency/FrequencyPage";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <FrequencyPage />;
+  redirect("/tones");
 }
