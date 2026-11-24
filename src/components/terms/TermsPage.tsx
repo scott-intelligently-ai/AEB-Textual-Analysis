@@ -23,7 +23,13 @@ import {
 } from "@/components/ui";
 import { downloadText, errorMessage, fetcher, send } from "@/lib/client/api";
 import type { FrequencyTable, ImportResult, Term, TermCategory, TermEquivalence } from "@/lib/client/types";
-import { guessCommaMode, importUsesColumns, parseTermList, type CommaMode } from "@/lib/text/csv";
+import {
+  countTermsToImport,
+  guessCommaMode,
+  importUsesColumns,
+  parseTermList,
+  type CommaMode,
+} from "@/lib/text/csv";
 import { EQUIVALENCE_MEANING, TERM_IMPORT_TEMPLATE, VARIANT_MEANING } from "@/lib/text/explanations";
 
 const splitVariants = (value: string) =>
@@ -429,7 +435,9 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
   const usesColumns = importUsesColumns(input);
   const effectiveMode = mode ?? guessCommaMode(input);
   const parsed = parseTermList(input, effectiveMode);
+  const count = countTermsToImport(parsed);
   const hasCommas = input.includes(",") && !usesColumns;
+  const showsLabels = parsed.some((term) => term.categories.length > 0 || term.equivalents.length > 0);
 
   async function readFile(file: File | undefined) {
     if (!file) return;
@@ -467,6 +475,15 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
               ? ` ${result.skipped.length} ${result.skipped.length === 1 ? "was" : "were"} not added:`
               : ""}
           </p>
+          {result.categories.length > 0 ? (
+            <p>
+              Categories:{" "}
+              {result.categories
+                .map((category) => `${category.name} (${category.terms.join(", ")})`)
+                .join("; ")}
+              .
+            </p>
+          ) : null}
           {result.groups.length > 0 ? (
             <p>
               Equivalence groups:{" "}
@@ -496,8 +513,8 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" busy={busy} disabled={parsed.length === 0} onClick={run}>
-            Import {parsed.length} term{parsed.length === 1 ? "" : "s"}
+          <Button variant="primary" busy={busy} disabled={count === 0} onClick={run}>
+            Import {count} term{count === 1 ? "" : "s"}
           </Button>
         </>
       }
@@ -505,8 +522,9 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p>
-            {VARIANT_MEANING} {EQUIVALENCE_MEANING} Use the template for both, or paste one term per
-            line.
+            {VARIANT_MEANING} {EQUIVALENCE_MEANING} In the template, separate items in a cell with /.
+            The first item under terms is the term and the rest are its variants. An ending such as
+            (s) or (es) is read as both the singular and the plural.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={() => downloadText("term-import-template.csv", TERM_IMPORT_TEMPLATE)}>
@@ -527,14 +545,15 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
           rows={8}
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder={"term,variants,equivalent_group\nwar,wars,\nconflict,,Conflict\npeace,,Conflict"}
+          placeholder={"terms,categories,equivalents\nwar(s),foreign policy,conflict(s)\npeace,foreign policy / diplomacy,armistice"}
           aria-label="Terms to import"
           className="font-mono"
         />
         {usesColumns ? (
           <p className="text-xs leading-5 text-zinc-500">
-            This file uses the template columns. Variants stay in the variants column, and
-            equivalent_group names the group for separate terms that can be counted together.
+            This file uses columns. In terms, the first item is the term and any others are
+            variants. Each item in categories is a category for that term, and each item in
+            equivalents is a separate term grouped with it.
           </p>
         ) : null}
         {hasCommas ? (
@@ -567,14 +586,30 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
         {parsed.length > 0 ? (
           <div>
             <p className="mb-1 text-xs font-medium text-zinc-600">
-              This will add {parsed.length} term{parsed.length === 1 ? "" : "s"}
+              This will add {count} term{count === 1 ? "" : "s"}
             </p>
+            {showsLabels ? (
+              <p className="mb-1 text-xs leading-5 text-zinc-500">
+                Plain labels are variants, green labels are categories, and indigo labels are
+                equivalent terms.
+              </p>
+            ) : null}
             <ul className="max-h-48 divide-y divide-zinc-100 overflow-y-auto rounded-lg ring-1 ring-zinc-200">
               {parsed.map((term) => (
                 <li key={term.text} className="flex flex-wrap items-center gap-1.5 px-3 py-1.5">
                   <span className="font-medium text-zinc-900">{term.text}</span>
                   {term.variants.map((variant) => (
-                    <Badge key={variant}>{variant}</Badge>
+                    <Badge key={`variant-${variant}`}>{variant}</Badge>
+                  ))}
+                  {term.categories.map((category) => (
+                    <Badge key={`category-${category}`} tone="green">
+                      {category}
+                    </Badge>
+                  ))}
+                  {term.equivalents.map((equivalent) => (
+                    <Badge key={`equivalent-${equivalent}`} tone="indigo">
+                      {equivalent}
+                    </Badge>
                   ))}
                   {term.equivalence ? <Badge tone="indigo">{term.equivalence}</Badge> : null}
                 </li>

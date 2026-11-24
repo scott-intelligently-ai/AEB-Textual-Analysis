@@ -38,11 +38,11 @@ export function csvWithNote(rows: (string | number)[][], note: string): string {
 export const TERM_IMPORT_TEMPLATE = toCsv([
   [
     "note",
-    "One term per row. Put other spellings and plurals in variants, separated by semicolons; they are always counted as that term. Put the same name in equivalent_group for separate terms, such as war and conflict, that should stay separate but be countable together. Leave equivalent_group blank when the term stands alone.",
+    "One term per row. Separate items in a cell with /, with or without spaces around it. In terms, the first item is the term and the rest are variants, which are always counted as that term. A parenthetical ending such as (s) or (es) stands for both the singular and the plural, so shoe(s) is shoe and shoes; countr(y/ies) is country and countries. Categories lists every category for that term. Equivalents lists separate terms with a similar meaning; they stay separate and can be counted together. Leave a cell blank when it does not apply.",
   ],
-  ["term", "variants", "equivalent_group"],
-  ["war", "wars", ""],
-  ["conflict", "", "Conflict"],
-  ["peace", "", "Conflict"],
-  ["freedom", "freedoms", ""],
+  ["terms", "categories", "equivalents"],
+  ["war(s)", "foreign policy", "conflict(s)"],
+  ["peace", "foreign policy / diplomacy", "armistice"],
+  ["tax(es) / tariff(s)", "economy", "duty"],
+  ["freedom", "rights", ""],
 ]);

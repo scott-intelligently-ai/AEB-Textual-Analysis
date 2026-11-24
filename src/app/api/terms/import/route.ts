@@ -7,6 +7,8 @@ const body = z.object({
     z.object({
       text: z.string(),
       variants: z.array(z.string()).optional(),
+      categories: z.array(z.string()).optional(),
+      equivalents: z.array(z.string()).optional(),
       equivalence: z.string().nullable().optional(),
     }),
   ),
