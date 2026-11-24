@@ -1,6 +1,6 @@
 import { inArray } from "drizzle-orm";
 import { getDb, schema } from "../db";
-import { toCsv } from "../lib/text/csv";
+import { OCCURRENCE_DOWNLOAD_NOTE, csvWithNote } from "../lib/text/explanations";
 import { findOccurrences, frequencyTable, spanKey, type FrequencyTable } from "../lib/text/match";
 import { getDocumentRows } from "./documents";
 import { listTerms, termPatterns } from "./terms";
@@ -59,5 +59,5 @@ export async function occurrencesCsv(documentIds?: number[]): Promise<string> {
       ]);
     }
   }
-  return toCsv(rows);
+  return csvWithNote(rows, OCCURRENCE_DOWNLOAD_NOTE);
 }

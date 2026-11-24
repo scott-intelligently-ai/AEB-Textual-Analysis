@@ -162,10 +162,11 @@ describe("services", () => {
     const id = await addDocument("Untagged", "Peace, peace, and no war.");
     await tag(id, "war", 0, "Negative");
     const lines = (await s.frequency.occurrencesCsv([id])).trim().split("\r\n");
-    expect(lines[0]).toBe(
+    expect(lines[0].startsWith("how_to_read_this_file,")).toBe(true);
+    expect(lines[1]).toBe(
       "document,term,matched_text,position,tone,tone_score,tone_set_by,context",
     );
-    expect(lines.slice(1).map((line) => line.split(",").slice(1, 7).join(","))).toEqual([
+    expect(lines.slice(2).map((line) => line.split(",").slice(1, 7).join(","))).toEqual([
       "peace,Peace,0,Neutral,0,default",
       "peace,peace,7,Neutral,0,default",
       "war,war,21,Negative,-1,user",
@@ -337,9 +338,9 @@ describe("services", () => {
     const overall = await s.distribution.getToneDistribution("overall", [id]);
     expect(overall.rows[0]?.total).toBe(2);
     const csv = await s.distribution.toneDistributionCsv("overall", [id]);
-    expect(csv.split("\r\n")[0]).toBe(
-      `scope,${overall.tones.map((tone) => tone.name).join(",")},total`,
-    );
+    const csvLines = csv.split("\r\n");
+    expect(csvLines[0].startsWith("how_to_read_this_file,")).toBe(true);
+    expect(csvLines[1]).toBe(`scope,${overall.tones.map((tone) => tone.name).join(",")},total`);
 
     const byDocument = await s.distribution.getToneDistribution("document", [id]);
     expect(byDocument.rows.map((row) => row.label)).toEqual(["Distribution"]);
@@ -347,5 +348,23 @@ describe("services", () => {
     await s.taxonomy.deleteEquivalence(conflict.id);
     await s.taxonomy.deleteEquivalence(revenue.id);
     expect((await s.terms.listTerms()).find((term) => term.id === peace.id)?.equivalenceId).toBeNull();
+  });
+
+  it("imports variants and places new and existing terms in an equivalence group", async () => {
+    const result = await s.terms.importTerms([
+      { text: "embargo", variants: ["embargoes"], equivalence: "Sanctions" },
+      { text: "sanction", equivalence: "Sanctions" },
+      { text: "freedom", equivalence: "Sanctions" },
+    ]);
+    expect(result.added.map((term) => term.text)).toEqual(["embargo", "sanction"]);
+    expect(result.skipped.map((item) => item.text)).toEqual(["freedom"]);
+    expect(result.skipped[0]?.reason).toMatch(/equivalence group "Sanctions"/);
+    const terms = await s.terms.listTerms();
+    const embargo = terms.find((term) => term.text === "embargo");
+    expect(embargo?.variants).toEqual(["embargoes"]);
+    expect(embargo?.equivalenceId).toBeTruthy();
+    expect(terms.find((term) => term.text === "sanction")?.equivalenceId).toBe(embargo?.equivalenceId);
+    expect(terms.find((term) => term.text === "freedom")?.equivalenceId).toBe(embargo?.equivalenceId);
+    expect(result.groups).toEqual([{ name: "Sanctions", terms: ["embargo", "sanction", "freedom"] }]);
   });
 });

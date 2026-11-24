@@ -16,7 +16,7 @@ import {
 } from "@/components/ui";
 import { downloadText, fetcher } from "@/lib/client/api";
 import type { DocumentSummary, FrequencyTable } from "@/lib/client/types";
-import { toCsv } from "@/lib/text/csv";
+import { EQUIVALENCE_MEANING, FREQUENCY_DOWNLOAD_NOTE, VARIANT_MEANING, csvWithNote } from "@/lib/text/explanations";
 
 type Sort = "list" | "total";
 
@@ -48,7 +48,7 @@ export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
       ...data.rows.map((row) => [row.term, ...row.counts, row.total]),
       ["total", ...data.documents.map((d) => d.total), data.grandTotal],
     ];
-    downloadText("term-frequency.csv", toCsv(rows));
+    downloadText("term-frequency.csv", csvWithNote(rows, FREQUENCY_DOWNLOAD_NOTE));
   }
 
   if (documents.error) return <ErrorBlock error={documents.error} />;
@@ -82,10 +82,16 @@ export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Frequency</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-600">
-              How often each term appears, in every document or only the ones you choose. Variants
-              are counted under their term.
-            </p>
+            <div className="mt-1 max-w-3xl space-y-2 text-sm leading-6 text-zinc-600">
+              <p>
+                How often each term appears, in every document or only the ones you choose. Each
+                row is one term. {VARIANT_MEANING}
+              </p>
+              <p>
+                {EQUIVALENCE_MEANING} This table and both downloads keep equivalent terms in their
+                own rows. The CSV files begin with the same explanation.
+              </p>
+            </div>
           </div>
           {exportActions ? (
             <div className="flex flex-wrap items-center gap-2">{exportActions}</div>
@@ -94,7 +100,18 @@ export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
       ) : (
         <PageHeader
           title="Frequency"
-          description="How often each term appears, in every document or only the ones you choose. Variants are counted under their term."
+          description={
+            <>
+              <span className="block">
+                How often each term appears, in every document or only the ones you choose. Each row
+                is one term. {VARIANT_MEANING}
+              </span>
+              <span className="mt-2 block">
+                {EQUIVALENCE_MEANING} This table and both downloads keep equivalent terms in their
+                own rows. The CSV files begin with the same explanation.
+              </span>
+            </>
+          }
           actions={exportActions}
         />
       )}
