@@ -1,10 +1,13 @@
 /** Shapes returned by the API, re-exported for browser code as types only. */
 
-export type { Annotation, Term, Tone } from "@/db/schema";
-export type { DocumentDetail, DocumentSummary, SourcePage } from "@/server/documents";
+export type { Annotation, Tone } from "@/db/schema";
+export type { TermCategory, TermEquivalence, DocumentTag } from "@/db/schema";
+export type { DocumentDetail, DocumentSummary, DocumentTagSummary, SourcePage } from "@/server/documents";
+export type { TermView as Term } from "@/server/terms";
 export type { PageSummary, UploadSummary } from "@/server/uploads";
 export type { ToneWithUsage } from "@/server/tones";
 export type { ImportResult } from "@/server/terms";
+export type { ToneDistribution, DistributionGroup } from "@/lib/text/distribution";
 export type {
   GenerateResult,
   PendingSuggestion,

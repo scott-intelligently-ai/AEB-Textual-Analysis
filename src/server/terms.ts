@@ -10,9 +10,21 @@ export interface TermInput {
 
 const tidy = (value: string) => value.trim().split(/\s+/).join(" ");
 
-export async function listTerms(): Promise<schema.Term[]> {
+export interface TermView extends schema.Term {
+  categoryIds: number[];
+}
+
+export async function listTerms(): Promise<TermView[]> {
   const db = await getDb();
-  return db.select().from(schema.terms).orderBy(asc(schema.terms.id));
+  const rows = await db.select().from(schema.terms).orderBy(asc(schema.terms.id));
+  const memberships = await db.select().from(schema.termCategoryMembers);
+  const byTerm = new Map<number, number[]>();
+  for (const membership of memberships) {
+    const list = byTerm.get(membership.termId) ?? [];
+    list.push(membership.categoryId);
+    byTerm.set(membership.termId, list);
+  }
+  return rows.map((term) => ({ ...term, categoryIds: byTerm.get(term.id) ?? [] }));
 }
 
 export async function termPatterns(): Promise<TermPattern[]> {
