@@ -1,11 +1,6 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import { getDb, schema, type Db } from "../db";
-import {
-  combineParts,
-  joinPages,
-  rebaseSpans,
-  splitPart,
-} from "../lib/text/documents";
+import { combineParts, joinPages, rebaseSpans, splitPart } from "../lib/text/documents";
 import { badRequest, notFound } from "./http";
 import { termPatterns } from "./terms";
 
@@ -35,30 +30,29 @@ export interface DocumentDetail {
   sourcePages: SourcePage[];
 }
 
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type NewAnnotation = Omit<schema.Annotation, "id">;
-
-const now = sql`(CURRENT_TIMESTAMP)`;
+const touch = sql`now()`;
 const byTitle = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 function countWords(text: string): number {
   return text.match(/\S+/g)?.length ?? 0;
 }
 
-export function listDocuments(): DocumentSummary[] {
-  const db = getDb();
+export async function listDocuments(): Promise<DocumentSummary[]> {
+  const db = await getDb();
   const counts = new Map(
-    db
-      .select({ documentId: schema.annotations.documentId, count: sql<number>`count(*)` })
-      .from(schema.annotations)
-      .groupBy(schema.annotations.documentId)
-      .all()
-      .map((row) => [row.documentId, row.count]),
+    (
+      await db
+        .select({
+          documentId: schema.annotations.documentId,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(schema.annotations)
+        .groupBy(schema.annotations.documentId)
+    ).map((row) => [row.documentId, Number(row.count)]),
   );
-  return db
-    .select()
-    .from(schema.documents)
-    .all()
+  const documents = await db.select().from(schema.documents);
+  return documents
     .map((document) => ({
       id: document.id,
       title: document.title,
@@ -71,33 +65,33 @@ export function listDocuments(): DocumentSummary[] {
     .sort((a, b) => byTitle.compare(a.title, b.title) || a.id - b.id);
 }
 
-export function getDocumentRow(id: number): schema.DocumentRow {
-  const document = getDb()
+export async function getDocumentRow(id: number): Promise<schema.DocumentRow> {
+  const db = await getDb();
+  const [document] = await db
     .select()
     .from(schema.documents)
-    .where(eq(schema.documents.id, id))
-    .get();
+    .where(eq(schema.documents.id, id));
   if (!document) throw notFound("Document");
   return document;
 }
 
 /** Full rows for the given documents (all when ids is omitted), sorted by title. */
-export function getDocumentRows(ids?: number[]): schema.DocumentRow[] {
-  const db = getDb();
+export async function getDocumentRows(ids?: number[]): Promise<schema.DocumentRow[]> {
+  const db = await getDb();
   if (ids?.length === 0) return [];
   const rows = ids
-    ? db.select().from(schema.documents).where(inArray(schema.documents.id, ids)).all()
-    : db.select().from(schema.documents).all();
+    ? await db.select().from(schema.documents).where(inArray(schema.documents.id, ids))
+    : await db.select().from(schema.documents);
   return rows.sort((a, b) => byTitle.compare(a.title, b.title) || a.id - b.id);
 }
 
-export function getDocument(id: number): DocumentDetail {
-  const db = getDb();
-  const document = getDocumentRow(id);
+export async function getDocument(id: number): Promise<DocumentDetail> {
+  const db = await getDb();
+  const document = await getDocumentRow(id);
   const pages =
     document.sourcePageIds.length === 0
       ? []
-      : db
+      : await db
           .select({
             id: schema.pages.id,
             uploadId: schema.pages.uploadId,
@@ -106,8 +100,7 @@ export function getDocument(id: number): DocumentDetail {
           })
           .from(schema.pages)
           .innerJoin(schema.uploads, eq(schema.uploads.id, schema.pages.uploadId))
-          .where(inArray(schema.pages.id, document.sourcePageIds))
-          .all();
+          .where(inArray(schema.pages.id, document.sourcePageIds));
   const byId = new Map(pages.map((page) => [page.id, page]));
   return {
     id: document.id,
@@ -118,43 +111,48 @@ export function getDocument(id: number): DocumentDetail {
   };
 }
 
-function annotationsOf(tx: Tx | Db, documentId: number): schema.Annotation[] {
+async function annotationsOf(tx: Db, documentId: number): Promise<schema.Annotation[]> {
   return tx
     .select()
     .from(schema.annotations)
-    .where(eq(schema.annotations.documentId, documentId))
-    .all();
+    .where(eq(schema.annotations.documentId, documentId));
 }
 
-function replaceAnnotations(tx: Tx, documentId: number, annotations: NewAnnotation[]): void {
-  tx.delete(schema.annotations).where(eq(schema.annotations.documentId, documentId)).run();
+async function replaceAnnotations(
+  tx: Db,
+  documentId: number,
+  annotations: NewAnnotation[],
+): Promise<void> {
+  await tx.delete(schema.annotations).where(eq(schema.annotations.documentId, documentId));
   if (annotations.length > 0) {
-    tx.insert(schema.annotations)
-      .values(annotations.map((annotation) => ({ ...annotation, documentId })))
-      .run();
+    await tx
+      .insert(schema.annotations)
+      .values(annotations.map((annotation) => ({ ...annotation, documentId })));
   }
 }
 
-const withoutId = (a: schema.Annotation): NewAnnotation => ({
-  documentId: a.documentId,
-  termId: a.termId,
-  start: a.start,
-  end: a.end,
-  toneId: a.toneId,
-  source: a.source,
-  reason: a.reason,
+const withoutId = (annotation: schema.Annotation): NewAnnotation => ({
+  documentId: annotation.documentId,
+  termId: annotation.termId,
+  start: annotation.start,
+  end: annotation.end,
+  toneId: annotation.toneId,
+  source: annotation.source,
+  reason: annotation.reason,
 });
 
-export function createDocumentFromUpload(uploadId: number, title?: string): { id: number } {
-  const db = getDb();
-  const upload = db.select().from(schema.uploads).where(eq(schema.uploads.id, uploadId)).get();
+export async function createDocumentFromUpload(
+  uploadId: number,
+  title?: string,
+): Promise<{ id: number }> {
+  const db = await getDb();
+  const [upload] = await db.select().from(schema.uploads).where(eq(schema.uploads.id, uploadId));
   if (!upload) throw notFound("Upload");
-  const pages = db
+  const pages = await db
     .select()
     .from(schema.pages)
     .where(eq(schema.pages.uploadId, uploadId))
-    .orderBy(schema.pages.pageNumber)
-    .all();
+    .orderBy(schema.pages.pageNumber);
   const unfinished = pages.filter((page) => page.ocrStatus !== "done");
   if (unfinished.length > 0) {
     throw badRequest(
@@ -165,84 +163,91 @@ export function createDocumentFromUpload(uploadId: number, title?: string): { id
   const text = joinPages(pages.map((page) => page.ocrText));
   if (!text) throw badRequest("None of the pages contain any text.");
   const fallback = upload.filename.replace(/\.[^.]+$/, "");
-  return db
+  const [created] = await db
     .insert(schema.documents)
     .values({
       title: title?.trim() || fallback,
       text,
       sourcePageIds: pages.map((page) => page.id),
     })
-    .returning({ id: schema.documents.id })
-    .get();
+    .returning({ id: schema.documents.id });
+  return created;
 }
 
-export function renameDocument(id: number, title: string): void {
+export async function renameDocument(id: number, title: string): Promise<void> {
   const tidy = title.trim();
   if (!tidy) throw badRequest("A document needs a title.");
-  getDocumentRow(id);
-  getDb()
+  await getDocumentRow(id);
+  const db = await getDb();
+  await db
     .update(schema.documents)
-    .set({ title: tidy, updatedAt: now })
-    .where(eq(schema.documents.id, id))
-    .run();
+    .set({ title: tidy, updatedAt: touch })
+    .where(eq(schema.documents.id, id));
 }
 
 /** Saves edited text and reports how many tone tags the edit cleared. */
-export function updateDocumentText(id: number, text: string): { cleared: number } {
-  const db = getDb();
-  const document = getDocumentRow(id);
+export async function updateDocumentText(id: number, text: string): Promise<{ cleared: number }> {
+  const db = await getDb();
+  const document = await getDocumentRow(id);
   const next = text.replace(/\r\n?/g, "\n");
   if (!next.trim()) throw badRequest("A document cannot be empty.");
   if (next === document.text) return { cleared: 0 };
-  return db.transaction((tx) => {
+  const patterns = await termPatterns();
+  return db.transaction(async (tx) => {
     const { kept, dropped } = rebaseSpans(
       document.text,
       next,
-      annotationsOf(tx, id),
-      termPatterns(),
+      await annotationsOf(tx as unknown as Db, id),
+      patterns,
     );
-    replaceAnnotations(tx, id, kept.map(withoutId));
-    tx.update(schema.documents)
-      .set({ text: next, updatedAt: now })
-      .where(eq(schema.documents.id, id))
-      .run();
+    await replaceAnnotations(tx as unknown as Db, id, kept.map(withoutId));
+    await tx
+      .update(schema.documents)
+      .set({ text: next, updatedAt: touch })
+      .where(eq(schema.documents.id, id));
     return { cleared: dropped.length };
   });
 }
 
-export function deleteDocument(id: number): void {
-  const result = getDb().delete(schema.documents).where(eq(schema.documents.id, id)).run();
-  if (result.changes === 0) throw notFound("Document");
+export async function deleteDocument(id: number): Promise<void> {
+  const db = await getDb();
+  const deleted = await db
+    .delete(schema.documents)
+    .where(eq(schema.documents.id, id))
+    .returning({ id: schema.documents.id });
+  if (deleted.length === 0) throw notFound("Document");
 }
 
 /**
  * Joins documents, in the order given, into one new document and removes the
  * originals. Tone tags move with their text.
  */
-export function combineDocuments(ids: number[], title?: string): { id: number } {
+export async function combineDocuments(ids: number[], title?: string): Promise<{ id: number }> {
   if (ids.length < 2) throw badRequest("Choose at least two documents to combine.");
   if (new Set(ids).size !== ids.length) throw badRequest("A document can only be combined once.");
-  const db = getDb();
-  const documents = ids.map(getDocumentRow);
-  return db.transaction((tx) => {
+  const db = await getDb();
+  const documents = await Promise.all(ids.map(getDocumentRow));
+  return db.transaction(async (tx) => {
+    const querier = tx as unknown as Db;
     const combined = combineParts(
-      documents.map((document) => ({
-        text: document.text,
-        spans: annotationsOf(tx, document.id),
-      })),
+      await Promise.all(
+        documents.map(async (document) => ({
+          text: document.text,
+          spans: await annotationsOf(querier, document.id),
+        })),
+      ),
     );
     const sourcePageIds = [...new Set(documents.flatMap((document) => document.sourcePageIds))];
-    const created = tx
+    const [created] = await tx
       .insert(schema.documents)
       .values({
         title: title?.trim() || documents[0].title,
         text: combined.text,
         sourcePageIds,
       })
-      .returning({ id: schema.documents.id })
-      .get();
-    tx.delete(schema.documents).where(inArray(schema.documents.id, ids)).run();
-    replaceAnnotations(tx, created.id, combined.spans.map(withoutId));
+      .returning({ id: schema.documents.id });
+    await tx.delete(schema.documents).where(inArray(schema.documents.id, ids));
+    await replaceAnnotations(querier, created.id, combined.spans.map(withoutId));
     return created;
   });
 }
@@ -256,34 +261,38 @@ export interface SplitTitles {
  * Cuts a document in two at a character offset. The original keeps the first
  * part; the second part becomes a new document.
  */
-export function splitDocument(
+export async function splitDocument(
   id: number,
   offset: number,
   titles: SplitTitles = {},
-): { first: number; second: number; cleared: number } {
-  const db = getDb();
-  const document = getDocumentRow(id);
-  return db.transaction((tx) => {
-    const { first, second, dropped } = splitPart(document.text, annotationsOf(tx, id), offset);
-    tx.update(schema.documents)
+): Promise<{ first: number; second: number; cleared: number }> {
+  const db = await getDb();
+  const document = await getDocumentRow(id);
+  return db.transaction(async (tx) => {
+    const querier = tx as unknown as Db;
+    const { first, second, dropped } = splitPart(
+      document.text,
+      await annotationsOf(querier, id),
+      offset,
+    );
+    await tx
+      .update(schema.documents)
       .set({
         title: titles.first?.trim() || `${document.title} (part 1)`,
         text: first.text,
-        updatedAt: now,
+        updatedAt: touch,
       })
-      .where(eq(schema.documents.id, id))
-      .run();
-    replaceAnnotations(tx, id, first.spans.map(withoutId));
-    const created = tx
+      .where(eq(schema.documents.id, id));
+    await replaceAnnotations(querier, id, first.spans.map(withoutId));
+    const [created] = await tx
       .insert(schema.documents)
       .values({
         title: titles.second?.trim() || `${document.title} (part 2)`,
         text: second.text,
         sourcePageIds: document.sourcePageIds,
       })
-      .returning({ id: schema.documents.id })
-      .get();
-    replaceAnnotations(tx, created.id, second.spans.map(withoutId));
+      .returning({ id: schema.documents.id });
+    await replaceAnnotations(querier, created.id, second.spans.map(withoutId));
     return { first: id, second: created.id, cleared: dropped.length };
   });
 }

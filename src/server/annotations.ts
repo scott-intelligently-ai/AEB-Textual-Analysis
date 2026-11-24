@@ -9,18 +9,18 @@ import { getSettings } from "./settings";
 import { termPatterns } from "./terms";
 import { listTones } from "./tones";
 
-export function listAnnotations(documentId: number): schema.Annotation[] {
-  getDocumentRow(documentId);
-  return getDb()
+export async function listAnnotations(documentId: number): Promise<schema.Annotation[]> {
+  await getDocumentRow(documentId);
+  const db = await getDb();
+  return db
     .select()
     .from(schema.annotations)
-    .where(eq(schema.annotations.documentId, documentId))
-    .all();
+    .where(eq(schema.annotations.documentId, documentId));
 }
 
-function occurrenceAt(text: string, span: Span): Occurrence {
-  const occurrence = findOccurrences(text, termPatterns()).find(
-    (o) => o.start === span.start && o.end === span.end,
+async function occurrenceAt(text: string, span: Span): Promise<Occurrence> {
+  const occurrence = findOccurrences(text, await termPatterns()).find(
+    (item) => item.start === span.start && item.end === span.end,
   );
   if (!occurrence) {
     throw new HttpError(
@@ -31,14 +31,15 @@ function occurrenceAt(text: string, span: Span): Occurrence {
   return occurrence;
 }
 
-function upsert(
+async function upsert(
   documentId: number,
   occurrence: Occurrence,
   toneId: number,
   source: schema.AnnotationSource,
   reason: string | null,
-): void {
-  getDb()
+): Promise<void> {
+  const db = await getDb();
+  await db
     .insert(schema.annotations)
     .values({
       documentId,
@@ -52,16 +53,20 @@ function upsert(
     .onConflictDoUpdate({
       target: [schema.annotations.documentId, schema.annotations.start, schema.annotations.end],
       set: { termId: occurrence.termId, toneId, source, reason },
-    })
-    .run();
+    });
 }
 
 /** Records the user's choice for one occurrence; a null tone clears the tag. */
-export function setTone(documentId: number, span: Span, toneId: number | null): void {
-  const document = getDocumentRow(documentId);
-  const occurrence = occurrenceAt(document.text, span);
+export async function setTone(
+  documentId: number,
+  span: Span,
+  toneId: number | null,
+): Promise<void> {
+  const document = await getDocumentRow(documentId);
+  const occurrence = await occurrenceAt(document.text, span);
+  const db = await getDb();
   if (toneId === null) {
-    getDb()
+    await db
       .delete(schema.annotations)
       .where(
         and(
@@ -69,33 +74,36 @@ export function setTone(documentId: number, span: Span, toneId: number | null): 
           eq(schema.annotations.start, span.start),
           eq(schema.annotations.end, span.end),
         ),
-      )
-      .run();
+      );
     return;
   }
-  if (!listTones().some((tone) => tone.id === toneId)) throw badRequest("That tone no longer exists.");
-  upsert(documentId, occurrence, toneId, "user", null);
+  if (!(await listTones()).some((tone) => tone.id === toneId)) {
+    throw badRequest("That tone no longer exists.");
+  }
+  await upsert(documentId, occurrence, toneId, "user", null);
 }
 
 /** Turns every AI suggestion in the document into a confirmed tag. */
-export function confirmSuggestions(documentId: number): { confirmed: number } {
-  getDocumentRow(documentId);
-  const result = getDb()
+export async function confirmSuggestions(documentId: number): Promise<{ confirmed: number }> {
+  await getDocumentRow(documentId);
+  const db = await getDb();
+  const rows = await db
     .update(schema.annotations)
     .set({ source: "user" })
     .where(and(eq(schema.annotations.documentId, documentId), eq(schema.annotations.source, "ai")))
-    .run();
-  return { confirmed: result.changes };
+    .returning({ id: schema.annotations.id });
+  return { confirmed: rows.length };
 }
 
 /** Removes every AI suggestion in the document that has not been confirmed. */
-export function discardSuggestions(documentId: number): { discarded: number } {
-  getDocumentRow(documentId);
-  const result = getDb()
+export async function discardSuggestions(documentId: number): Promise<{ discarded: number }> {
+  await getDocumentRow(documentId);
+  const db = await getDb();
+  const rows = await db
     .delete(schema.annotations)
     .where(and(eq(schema.annotations.documentId, documentId), eq(schema.annotations.source, "ai")))
-    .run();
-  return { discarded: result.changes };
+    .returning({ id: schema.annotations.id });
+  return { discarded: rows.length };
 }
 
 export interface AiToneResult {
@@ -112,19 +120,23 @@ export interface AiToneResult {
  * existing tag on it is replaced, since the user asked). Without one, every
  * occurrence the user has not tagged is judged.
  */
-export async function suggestDocumentTones(documentId: number, span?: Span): Promise<AiToneResult> {
-  const document = getDocumentRow(documentId);
-  const tones = listTones();
-  const settings = getSettings();
-  const occurrences = findOccurrences(document.text, termPatterns());
+export async function suggestDocumentTones(
+  documentId: number,
+  span?: Span,
+): Promise<AiToneResult> {
+  const document = await getDocumentRow(documentId);
+  const tones = await listTones();
+  const settings = await getSettings();
+  const patterns = await termPatterns();
+  const occurrences = findOccurrences(document.text, patterns);
 
   let targets: Occurrence[];
   let skipped = 0;
   if (span) {
-    targets = [occurrenceAt(document.text, span)];
+    targets = [await occurrenceAt(document.text, span)];
   } else {
     const userSet = new Set(
-      listAnnotations(documentId)
+      (await listAnnotations(documentId))
         .filter((annotation) => annotation.source === "user")
         .map(spanKey),
     );
@@ -143,14 +155,19 @@ export async function suggestDocumentTones(documentId: number, span?: Span): Pro
   });
 
   // The request can take a while; make sure nothing moved underneath it.
-  const current = getDocumentRow(documentId);
+  const current = await getDocumentRow(documentId);
   if (current.text !== document.text) {
     throw new HttpError(409, "The document was edited while the AI was working. Run it again.");
   }
-  const liveTones = new Set(listTones().map((tone) => tone.id));
-  const byKey = new Map(findOccurrences(current.text, termPatterns()).map((o) => [spanKey(o), o]));
+  const liveTones = new Set((await listTones()).map((tone) => tone.id));
+  const byKey = new Map(
+    findOccurrences(current.text, await termPatterns()).map((occurrence) => [
+      spanKey(occurrence),
+      occurrence,
+    ]),
+  );
   const userSetNow = new Set(
-    listAnnotations(documentId)
+    (await listAnnotations(documentId))
       .filter((annotation) => annotation.source === "user")
       .map(spanKey),
   );
@@ -163,7 +180,7 @@ export async function suggestDocumentTones(documentId: number, span?: Span): Pro
       skipped += 1;
       continue;
     }
-    upsert(documentId, occurrence, suggestion.toneId, "ai", suggestion.reason || null);
+    await upsert(documentId, occurrence, suggestion.toneId, "ai", suggestion.reason || null);
     suggested += 1;
   }
   return { suggested, skipped, missed };

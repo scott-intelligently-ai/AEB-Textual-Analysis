@@ -16,7 +16,7 @@ export const GET = route<Params>((_request, { id }) => getDocument(parseId(id, "
 export const PATCH = route<Params>(async (request, { id }) => {
   const documentId = parseId(id, "Document");
   const { title, text } = await parseBody(request, patch);
-  if (title !== undefined) renameDocument(documentId, title);
+  if (title !== undefined) await renameDocument(documentId, title);
   return text === undefined ? { cleared: 0 } : updateDocumentText(documentId, text);
 });
 

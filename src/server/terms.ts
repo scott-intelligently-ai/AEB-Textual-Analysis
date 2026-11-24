@@ -10,18 +10,19 @@ export interface TermInput {
 
 const tidy = (value: string) => value.trim().split(/\s+/).join(" ");
 
-export function listTerms(): schema.Term[] {
-  return getDb().select().from(schema.terms).orderBy(asc(schema.terms.id)).all();
+export async function listTerms(): Promise<schema.Term[]> {
+  const db = await getDb();
+  return db.select().from(schema.terms).orderBy(asc(schema.terms.id));
 }
 
-export function termPatterns(): TermPattern[] {
-  return listTerms().map(({ id, text, variants }) => ({ id, text, variants }));
+export async function termPatterns(): Promise<TermPattern[]> {
+  return (await listTerms()).map(({ id, text, variants }) => ({ id, text, variants }));
 }
 
 /** Every pattern in use, mapped to the term that owns it. */
-function patternOwners(excludeTermId?: number): Map<string, schema.Term> {
+async function patternOwners(excludeTermId?: number): Promise<Map<string, schema.Term>> {
   const owners = new Map<string, schema.Term>();
-  for (const term of listTerms()) {
+  for (const term of await listTerms()) {
     if (term.id === excludeTermId) continue;
     for (const pattern of [term.text, ...term.variants]) {
       owners.set(normalizeTerm(pattern), term);
@@ -31,10 +32,13 @@ function patternOwners(excludeTermId?: number): Map<string, schema.Term> {
 }
 
 /** Cleans a term and rejects it if any of its wording is already taken. */
-function prepare(input: TermInput, excludeTermId?: number): { text: string; variants: string[] } {
+async function prepare(
+  input: TermInput,
+  excludeTermId?: number,
+): Promise<{ text: string; variants: string[] }> {
   const text = tidy(input.text);
   if (!text) throw badRequest("A term cannot be empty.");
-  const owners = patternOwners(excludeTermId);
+  const owners = await patternOwners(excludeTermId);
   const taken = (pattern: string) => {
     const owner = owners.get(normalizeTerm(pattern));
     if (owner) {
@@ -60,29 +64,34 @@ function prepare(input: TermInput, excludeTermId?: number): { text: string; vari
   return { text, variants };
 }
 
-export function createTerm(input: TermInput): schema.Term {
-  const term = getDb().insert(schema.terms).values(prepare(input)).returning().get();
-  pruneOrphanAnnotations();
+export async function createTerm(input: TermInput): Promise<schema.Term> {
+  const db = await getDb();
+  const [term] = await db.insert(schema.terms).values(await prepare(input)).returning();
+  await pruneOrphanAnnotations();
   return term;
 }
 
-export function updateTerm(id: number, input: TermInput): schema.Term {
-  const db = getDb();
-  if (!db.select().from(schema.terms).where(eq(schema.terms.id, id)).get()) throw notFound("Term");
-  const term = db
+export async function updateTerm(id: number, input: TermInput): Promise<schema.Term> {
+  const db = await getDb();
+  const [existing] = await db.select().from(schema.terms).where(eq(schema.terms.id, id));
+  if (!existing) throw notFound("Term");
+  const [term] = await db
     .update(schema.terms)
-    .set(prepare(input, id))
+    .set(await prepare(input, id))
     .where(eq(schema.terms.id, id))
-    .returning()
-    .get();
-  pruneOrphanAnnotations();
+    .returning();
+  await pruneOrphanAnnotations();
   return term;
 }
 
-export function deleteTerm(id: number): void {
-  const result = getDb().delete(schema.terms).where(eq(schema.terms.id, id)).run();
-  if (result.changes === 0) throw notFound("Term");
-  pruneOrphanAnnotations();
+export async function deleteTerm(id: number): Promise<void> {
+  const db = await getDb();
+  const deleted = await db
+    .delete(schema.terms)
+    .where(eq(schema.terms.id, id))
+    .returning({ id: schema.terms.id });
+  if (deleted.length === 0) throw notFound("Term");
+  await pruneOrphanAnnotations();
 }
 
 export interface ImportResult {
@@ -90,12 +99,13 @@ export interface ImportResult {
   skipped: { text: string; reason: string }[];
 }
 
-export function importTerms(inputs: TermInput[]): ImportResult {
-  const db = getDb();
+export async function importTerms(inputs: TermInput[]): Promise<ImportResult> {
+  const db = await getDb();
   const result: ImportResult = { added: [], skipped: [] };
   for (const input of inputs) {
     try {
-      result.added.push(db.insert(schema.terms).values(prepare(input)).returning().get());
+      const [term] = await db.insert(schema.terms).values(await prepare(input)).returning();
+      result.added.push(term);
     } catch (error) {
       result.skipped.push({
         text: input.text,
@@ -103,7 +113,7 @@ export function importTerms(inputs: TermInput[]): ImportResult {
       });
     }
   }
-  pruneOrphanAnnotations();
+  await pruneOrphanAnnotations();
   return result;
 }
 
@@ -112,10 +122,10 @@ export function importTerms(inputs: TermInput[]): ImportResult {
  * the term list can change what matches where (adding "tax cut" takes those
  * words away from "tax"), and a stale tag must not reappear later.
  */
-export function pruneOrphanAnnotations(): number {
-  const db = getDb();
-  const matcher = buildMatcher(termPatterns());
-  const annotations = db.select().from(schema.annotations).all();
+export async function pruneOrphanAnnotations(): Promise<number> {
+  const db = await getDb();
+  const matcher = buildMatcher(await termPatterns());
+  const annotations = await db.select().from(schema.annotations);
   if (annotations.length === 0) return 0;
 
   const byDocument = new Map<number, schema.Annotation[]>();
@@ -127,20 +137,21 @@ export function pruneOrphanAnnotations(): number {
 
   const orphans: number[] = [];
   for (const [documentId, list] of byDocument) {
-    const document = db
+    const [document] = await db
       .select({ text: schema.documents.text })
       .from(schema.documents)
-      .where(eq(schema.documents.id, documentId))
-      .get();
+      .where(eq(schema.documents.id, documentId));
     const live = new Map(
-      matcher.find(document?.text ?? "").map((occurrence) => [spanKey(occurrence), occurrence.termId]),
+      matcher
+        .find(document?.text ?? "")
+        .map((occurrence) => [spanKey(occurrence), occurrence.termId]),
     );
     for (const annotation of list) {
       if (live.get(spanKey(annotation)) !== annotation.termId) orphans.push(annotation.id);
     }
   }
   if (orphans.length > 0) {
-    db.delete(schema.annotations).where(inArray(schema.annotations.id, orphans)).run();
+    await db.delete(schema.annotations).where(inArray(schema.annotations.id, orphans));
   }
   return orphans.length;
 }

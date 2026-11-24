@@ -19,6 +19,7 @@ import {
 } from "@/components/ui";
 import { fetcher, send } from "@/lib/client/api";
 import type { PageSummary, UploadSummary } from "@/lib/client/types";
+import { isBusy } from "@/components/library/UploadPanel";
 import { PROVIDERS, PROVIDER_LABELS, type Provider } from "@/lib/ai/providers";
 import { revealSelection } from "@/lib/client/dom";
 import {
@@ -34,12 +35,37 @@ const isWorking = (page: PageSummary) =>
 export function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { data: upload, error } = useSWR<UploadSummary>(`/api/uploads/${id}`, fetcher, {
-    refreshInterval: (data) => (data?.pages.some(isWorking) ? 1500 : 0),
+    refreshInterval: (data) => (data && isBusy(data) ? 1500 : 0),
   });
 
   if (error) return <ErrorBlock error={error} />;
   if (!upload) return <LoadingBlock />;
+  if (upload.pages.length === 0) return <Preparing upload={upload} />;
   return <Review upload={upload} />;
+}
+
+function Preparing({ upload }: { upload: UploadSummary }) {
+  return (
+    <>
+      <PageHeader
+        title={upload.filename}
+        description={
+          <>
+            <Link href="/" className="font-medium text-indigo-700 hover:underline">
+              Back to documents
+            </Link>
+          </>
+        }
+      />
+      {upload.status === "error" ? (
+        <Notice tone="red">{upload.error ?? "This scan could not be prepared."}</Notice>
+      ) : (
+        <Notice tone="indigo">
+          <Spinner className="size-3.5" /> Preparing the pages. This page updates on its own.
+        </Notice>
+      )}
+    </>
+  );
 }
 
 function Review({ upload }: { upload: UploadSummary }) {

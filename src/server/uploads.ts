@@ -1,21 +1,25 @@
-import fs from "node:fs";
 import path from "node:path";
 import { asc, eq, inArray } from "drizzle-orm";
-import sharp from "sharp";
-import { getDb, schema, uploadsDir } from "../db";
-import type { OcrStatus } from "../db/schema";
-import { transcribePage } from "../lib/ai/ocr";
+import { getDb, schema } from "../db";
+import type { OcrStatus, UploadStatus } from "../db/schema";
 import type { Provider } from "../lib/ai/models";
 import { cleanTranscription } from "../lib/text/transcription";
 import { badRequest, notFound } from "./http";
-import { getSettings } from "./settings";
+import { createUploadTicket, objectExists, removeFolder } from "./storage";
 
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".tif", ".tiff", ".avif"]);
+const IMAGE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".tif",
+  ".tiff",
+  ".avif",
+]);
 
-/** Longest edge of a stored page image; plenty for typed text and within model limits. */
-const MAX_EDGE = 2000;
-const PDF_SCALE = 3;
-const OCR_CONCURRENCY = 3;
+/** Large scans are uploaded straight to storage, so this only guards accidents. */
+const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
 
 export interface PageSummary {
   id: number;
@@ -30,100 +34,94 @@ export interface PageSummary {
 export interface UploadSummary {
   id: number;
   filename: string;
+  status: UploadStatus;
+  error: string | null;
   createdAt: string;
   pages: PageSummary[];
   /** Documents whose text came from this upload's pages. */
   documents: { id: number; title: string }[];
 }
 
-function uploadDir(uploadId: number): string {
-  return path.join(uploadsDir(), String(uploadId));
+export interface UploadTicket {
+  id: number;
+  path: string;
+  token: string;
 }
 
-async function toPageJpeg(input: Buffer, page = 0): Promise<Buffer> {
-  return sharp(input, { page })
-    .rotate()
-    .flatten({ background: "#ffffff" })
-    .resize({ width: MAX_EDGE, height: MAX_EDGE, fit: "inside", withoutEnlargement: true })
-    .jpeg({ quality: 88 })
-    .toBuffer();
-}
-
-async function renderPages(buffer: Buffer, extension: string): Promise<Buffer[]> {
-  if (extension === ".pdf") {
-    const { pdf } = await import("pdf-to-img");
-    const document = await pdf(buffer, { scale: PDF_SCALE });
-    try {
-      const pages: Buffer[] = [];
-      for await (const image of document) pages.push(await toPageJpeg(image));
-      return pages;
-    } finally {
-      await document.destroy();
-    }
-  }
-  const { pages = 1 } = await sharp(buffer).metadata();
-  const frames = extension === ".gif" ? 1 : pages;
-  const images: Buffer[] = [];
-  for (let page = 0; page < frames; page += 1) images.push(await toPageJpeg(buffer, page));
-  return images;
-}
-
-export async function createUpload(file: File): Promise<UploadSummary> {
-  const extension = path.extname(file.name).toLowerCase();
+function extensionOf(filename: string): string {
+  const extension = path.extname(filename).toLowerCase();
   if (extension !== ".pdf" && !IMAGE_EXTENSIONS.has(extension)) {
     throw badRequest(
-      `${file.name} is not a supported file. Upload a PDF or an image (PNG, JPEG, WebP, GIF, TIFF, AVIF).`,
+      `${filename} is not a supported file. Upload a PDF or an image (PNG, JPEG, WebP, GIF, TIFF, AVIF).`,
     );
   }
-  const buffer = Buffer.from(await file.arrayBuffer());
-  let images: Buffer[];
-  try {
-    images = await renderPages(buffer, extension);
-  } catch (error) {
-    throw badRequest(
-      `${file.name} could not be read: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  if (images.length === 0) throw badRequest(`${file.name} has no pages.`);
-
-  const db = getDb();
-  const upload = db
-    .insert(schema.uploads)
-    .values({ filename: file.name, mimeType: file.type || "application/octet-stream", filePath: "" })
-    .returning()
-    .get();
-  const dir = uploadDir(upload.id);
-  fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, `original${extension}`);
-  fs.writeFileSync(filePath, buffer);
-  db.update(schema.uploads).set({ filePath }).where(eq(schema.uploads.id, upload.id)).run();
-
-  const pageIds: number[] = [];
-  images.forEach((image, i) => {
-    const imagePath = path.join(dir, `page-${i + 1}.jpg`);
-    fs.writeFileSync(imagePath, image);
-    const page = db
-      .insert(schema.pages)
-      .values({ uploadId: upload.id, pageNumber: i + 1, imagePath })
-      .returning({ id: schema.pages.id })
-      .get();
-    pageIds.push(page.id);
-  });
-
-  enqueueOcr(pageIds, getSettings().ocrProvider);
-  return getUpload(upload.id);
+  return extension;
 }
 
-function linkedDocuments(): Map<number, { id: number; title: string }[]> {
+export async function prepareUpload(input: {
+  filename: string;
+  mimeType: string;
+  size: number;
+}): Promise<UploadTicket> {
+  const filename = input.filename.trim();
+  if (!filename) throw badRequest("The file needs a name.");
+  if (!Number.isFinite(input.size) || input.size <= 0) throw badRequest(`${filename} is empty.`);
+  if (input.size > MAX_UPLOAD_BYTES) {
+    throw badRequest(`${filename} is larger than ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB.`);
+  }
+  const extension = extensionOf(filename);
+  const db = await getDb();
+  const [upload] = await db
+    .insert(schema.uploads)
+    .values({
+      filename,
+      mimeType: input.mimeType || "application/octet-stream",
+      storagePath: "pending",
+      status: "awaiting_file",
+    })
+    .returning();
+  const storagePath = `uploads/${upload.id}/original${extension}`;
+  await db
+    .update(schema.uploads)
+    .set({ storagePath })
+    .where(eq(schema.uploads.id, upload.id));
+  try {
+    const ticket = await createUploadTicket(storagePath);
+    return { id: upload.id, path: ticket.path, token: ticket.token };
+  } catch (error) {
+    await db.delete(schema.uploads).where(eq(schema.uploads.id, upload.id));
+    throw error;
+  }
+}
+
+/** Marks an upload ready for the worker once its file is in storage. */
+export async function queueUpload(id: number): Promise<UploadSummary> {
+  const db = await getDb();
+  const [upload] = await db.select().from(schema.uploads).where(eq(schema.uploads.id, id));
+  if (!upload) throw notFound("Upload");
+  if (upload.status === "queued" || upload.status === "rendering" || upload.status === "ready") {
+    return getUpload(id);
+  }
+  if (!(await objectExists(upload.storagePath))) {
+    throw badRequest("The file did not arrive. Choose it again.");
+  }
+  await db
+    .update(schema.uploads)
+    .set({ status: "queued", error: null })
+    .where(eq(schema.uploads.id, id));
+  return getUpload(id);
+}
+
+async function linkedDocuments(): Promise<Map<number, { id: number; title: string }[]>> {
+  const db = await getDb();
   const byPage = new Map<number, { id: number; title: string }[]>();
-  const documents = getDb()
+  const documents = await db
     .select({
       id: schema.documents.id,
       title: schema.documents.title,
       sourcePageIds: schema.documents.sourcePageIds,
     })
-    .from(schema.documents)
-    .all();
+    .from(schema.documents);
   for (const { id, title, sourcePageIds } of documents) {
     for (const pageId of sourcePageIds) {
       const list = byPage.get(pageId) ?? [];
@@ -146,6 +144,8 @@ function summarize(
   return {
     id: upload.id,
     filename: upload.filename,
+    status: upload.status,
+    error: upload.error,
     createdAt: upload.createdAt,
     pages: pages.map((page) => ({
       id: page.id,
@@ -160,113 +160,62 @@ function summarize(
   };
 }
 
-function pagesOf(uploadId: number): schema.Page[] {
-  return getDb()
+async function pagesOf(uploadId: number): Promise<schema.Page[]> {
+  const db = await getDb();
+  return db
     .select()
     .from(schema.pages)
     .where(eq(schema.pages.uploadId, uploadId))
-    .orderBy(asc(schema.pages.pageNumber))
-    .all();
+    .orderBy(asc(schema.pages.pageNumber));
 }
 
-export function listUploads(): UploadSummary[] {
-  const links = linkedDocuments();
-  return getDb()
-    .select()
-    .from(schema.uploads)
-    .orderBy(asc(schema.uploads.id))
-    .all()
-    .map((upload) => summarize(upload, pagesOf(upload.id), links));
+export async function listUploads(): Promise<UploadSummary[]> {
+  const db = await getDb();
+  const links = await linkedDocuments();
+  const uploads = await db.select().from(schema.uploads).orderBy(asc(schema.uploads.id));
+  return Promise.all(uploads.map(async (upload) => summarize(upload, await pagesOf(upload.id), links)));
 }
 
-export function getUpload(id: number): UploadSummary {
-  const upload = getDb().select().from(schema.uploads).where(eq(schema.uploads.id, id)).get();
+export async function getUpload(id: number): Promise<UploadSummary> {
+  const db = await getDb();
+  const [upload] = await db.select().from(schema.uploads).where(eq(schema.uploads.id, id));
   if (!upload) throw notFound("Upload");
-  return summarize(upload, pagesOf(id), linkedDocuments());
+  return summarize(upload, await pagesOf(id), await linkedDocuments());
 }
 
-export function deleteUpload(id: number): void {
-  const db = getDb();
-  const upload = db.select().from(schema.uploads).where(eq(schema.uploads.id, id)).get();
+export async function deleteUpload(id: number): Promise<void> {
+  const db = await getDb();
+  const [upload] = await db.select().from(schema.uploads).where(eq(schema.uploads.id, id));
   if (!upload) throw notFound("Upload");
-  db.delete(schema.uploads).where(eq(schema.uploads.id, id)).run();
-  fs.rmSync(uploadDir(id), { recursive: true, force: true });
+  await removeFolder(`uploads/${id}`);
+  await db.delete(schema.uploads).where(eq(schema.uploads.id, id));
 }
 
-export function getPage(id: number): schema.Page {
-  const page = getDb().select().from(schema.pages).where(eq(schema.pages.id, id)).get();
+export async function getPage(id: number): Promise<schema.Page> {
+  const db = await getDb();
+  const [page] = await db.select().from(schema.pages).where(eq(schema.pages.id, id));
   if (!page) throw notFound("Page");
   return page;
 }
 
-export function updatePageText(id: number, text: string): void {
-  getPage(id);
-  getDb()
+export async function updatePageText(id: number, text: string): Promise<void> {
+  await getPage(id);
+  const db = await getDb();
+  await db
     .update(schema.pages)
     .set({ ocrText: cleanTranscription(text), edited: true, ocrStatus: "done", ocrError: null })
-    .where(eq(schema.pages.id, id))
-    .run();
+    .where(eq(schema.pages.id, id));
 }
 
-// ---------------------------------------------------------------------------
-// OCR queue. Work runs inside the server process, a few pages at a time, and
-// the browser polls for progress.
-
-interface OcrQueue {
-  waiting: { pageId: number; provider: Provider }[];
-  active: number;
-}
-
-const globalForQueue = globalThis as unknown as { __ocrQueue?: OcrQueue };
-const queue = (globalForQueue.__ocrQueue ??= { waiting: [], active: 0 });
-
-export function enqueueOcr(pageIds: number[], provider: Provider): void {
+/**
+ * Asks the worker to convert these pages. The provider is stored on each page
+ * so a later change of the default does not redirect work already queued.
+ */
+export async function enqueueOcr(pageIds: number[], provider: Provider): Promise<void> {
   if (pageIds.length === 0) return;
-  getDb()
+  const db = await getDb();
+  await db
     .update(schema.pages)
-    .set({ ocrStatus: "pending", ocrError: null })
-    .where(inArray(schema.pages.id, pageIds))
-    .run();
-  const queued = new Set(queue.waiting.map((job) => job.pageId));
-  for (const pageId of pageIds) {
-    if (!queued.has(pageId)) queue.waiting.push({ pageId, provider });
-  }
-  pump();
-}
-
-function pump(): void {
-  while (queue.active < OCR_CONCURRENCY && queue.waiting.length > 0) {
-    const job = queue.waiting.shift()!;
-    queue.active += 1;
-    void runJob(job.pageId, job.provider).finally(() => {
-      queue.active -= 1;
-      pump();
-    });
-  }
-}
-
-async function runJob(pageId: number, provider: Provider): Promise<void> {
-  const db = getDb();
-  const page = db.select().from(schema.pages).where(eq(schema.pages.id, pageId)).get();
-  if (!page) return;
-  db.update(schema.pages)
-    .set({ ocrStatus: "processing" })
-    .where(eq(schema.pages.id, pageId))
-    .run();
-  try {
-    const image = await fs.promises.readFile(page.imagePath);
-    const { text, model } = await transcribePage(image, provider);
-    db.update(schema.pages)
-      .set({ ocrText: text, ocrStatus: "done", ocrError: null, ocrModel: model, edited: false })
-      .where(eq(schema.pages.id, pageId))
-      .run();
-  } catch (error) {
-    db.update(schema.pages)
-      .set({
-        ocrStatus: "error",
-        ocrError: error instanceof Error ? error.message : String(error),
-      })
-      .where(eq(schema.pages.id, pageId))
-      .run();
-  }
+    .set({ ocrStatus: "pending", ocrError: null, ocrProvider: provider })
+    .where(inArray(schema.pages.id, pageIds));
 }

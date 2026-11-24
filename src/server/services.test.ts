@@ -1,12 +1,4 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-
-// The services open the database on first use, so the data directory must be
-// set before they are imported.
-const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "speech-test-"));
-process.env.DATA_DIR = dataDir;
+import { beforeAll, describe, expect, it } from "vitest";
 
 type Services = {
   db: typeof import("../db");
@@ -20,6 +12,8 @@ type Services = {
 let s: Services;
 
 beforeAll(async () => {
+  const { installTestDatabase } = await import("../db/test-db");
+  await installTestDatabase();
   s = {
     db: await import("../db"),
     documents: await import("./documents"),
@@ -31,46 +25,42 @@ beforeAll(async () => {
   };
 });
 
-afterAll(() => {
-  fs.rmSync(dataDir, { recursive: true, force: true });
-});
-
-function addDocument(title: string, text: string): number {
+async function addDocument(title: string, text: string): Promise<number> {
   const { getDb, schema } = s.db;
-  return getDb()
+  const db = await getDb();
+  const [row] = await db
     .insert(schema.documents)
     .values({ title, text, sourcePageIds: [] })
-    .returning({ id: schema.documents.id })
-    .get().id;
+    .returning({ id: schema.documents.id });
+  return row.id;
 }
 
-function toneId(name: string): number {
-  return s.tones.listTones().find((tone) => tone.name === name)!.id;
+async function toneId(name: string): Promise<number> {
+  return (await s.tones.listTones()).find((tone) => tone.name === name)!.id;
 }
 
 /** Tags the nth occurrence of a word in a document and returns its span. */
-function tag(documentId: number, word: string, nth: number, tone: string) {
-  const text = s.documents.getDocumentRow(documentId).text;
+async function tag(documentId: number, word: string, nth: number, tone: string) {
+  const text = (await s.documents.getDocumentRow(documentId)).text;
   let start = -1;
   for (let i = 0; i <= nth; i += 1) start = text.indexOf(word, start + 1);
   const span = { start, end: start + word.length };
-  s.annotations.setTone(documentId, span, toneId(tone));
+  await s.annotations.setTone(documentId, span, await toneId(tone));
   return span;
 }
 
 /** The words each tone tag sits on, in order, as "word=Tone". */
-function tagged(documentId: number): string[] {
-  const text = s.documents.getDocumentRow(documentId).text;
-  const names = new Map(s.tones.listTones().map((tone) => [tone.id, tone.name]));
-  return s.annotations
-    .listAnnotations(documentId)
+async function tagged(documentId: number): Promise<string[]> {
+  const text = (await s.documents.getDocumentRow(documentId)).text;
+  const names = new Map((await s.tones.listTones()).map((tone) => [tone.id, tone.name]));
+  return (await s.annotations.listAnnotations(documentId))
     .sort((a, b) => a.start - b.start)
-    .map((a) => `${text.slice(a.start, a.end)}=${names.get(a.toneId)}`);
+    .map((annotation) => `${text.slice(annotation.start, annotation.end)}=${names.get(annotation.toneId)}`);
 }
 
 describe("services", () => {
-  it("seeds the five default tones with Neutral as the default", () => {
-    const tones = s.tones.listTones();
+  it("seeds the five default tones with Neutral as the default", async () => {
+    const tones = await s.tones.listTones();
     expect(tones.map((tone) => tone.name)).toEqual([
       "Very negative",
       "Negative",
@@ -81,175 +71,208 @@ describe("services", () => {
     expect(tones.filter((tone) => tone.isDefault).map((tone) => tone.name)).toEqual(["Neutral"]);
   });
 
-  it("rejects a term whose wording is already taken", () => {
-    s.terms.createTerm({ text: "peace" });
-    s.terms.createTerm({ text: "war", variants: ["wars"] });
-    s.terms.createTerm({ text: "tax" });
-    expect(() => s.terms.createTerm({ text: "Peace" })).toThrow(/already on the term list/);
-    expect(() => s.terms.createTerm({ text: "wars" })).toThrow(/already covered by the term "war"/);
-    const result = s.terms.importTerms([{ text: "freedom" }, { text: "WAR" }]);
+  it("rejects a term whose wording is already taken", async () => {
+    await s.terms.createTerm({ text: "peace" });
+    await s.terms.createTerm({ text: "war", variants: ["wars"] });
+    await s.terms.createTerm({ text: "tax" });
+    await expect(s.terms.createTerm({ text: "Peace" })).rejects.toThrow(/already on the term list/);
+    await expect(s.terms.createTerm({ text: "wars" })).rejects.toThrow(/already covered by the term "war"/);
+    const result = await s.terms.importTerms([{ text: "freedom" }, { text: "WAR" }]);
     expect(result.added.map((term) => term.text)).toEqual(["freedom"]);
     expect(result.skipped).toHaveLength(1);
   });
 
-  it("only accepts a tone on a real occurrence of a term", () => {
-    const id = addDocument("Check", "We want peace.");
-    expect(() => s.annotations.setTone(id, { start: 0, end: 2 }, toneId("Positive"))).toThrow(
-      /no longer an occurrence/,
-    );
-    s.documents.deleteDocument(id);
+  it("only accepts a tone on a real occurrence of a term", async () => {
+    const id = await addDocument("Check", "We want peace.");
+    await expect(
+      s.annotations.setTone(id, { start: 0, end: 2 }, await toneId("Positive")),
+    ).rejects.toThrow(/no longer an occurrence/);
+    await s.documents.deleteDocument(id);
   });
 
-  it("carries tone tags through combine, split, and edit", () => {
-    const a = addDocument("Part A", "We want peace. We reject war.");
-    const b = addDocument("Part B", "  The wars must end, and peace must follow.  ");
-    tag(a, "peace", 0, "Positive");
-    tag(a, "war", 0, "Very negative");
-    tag(b, "wars", 0, "Negative");
-    tag(b, "peace", 0, "Very positive");
+  it("carries tone tags through combine, split, and edit", async () => {
+    const a = await addDocument("Part A", "We want peace. We reject war.");
+    const b = await addDocument("Part B", "  The wars must end, and peace must follow.  ");
+    await tag(a, "peace", 0, "Positive");
+    await tag(a, "war", 0, "Very negative");
+    await tag(b, "wars", 0, "Negative");
+    await tag(b, "peace", 0, "Very positive");
 
-    const combined = s.documents.combineDocuments([a, b], "Whole speech").id;
-    expect(s.documents.listDocuments().map((d) => d.title)).toEqual(["Whole speech"]);
-    expect(s.documents.getDocumentRow(combined).text).toBe(
+    const combined = (await s.documents.combineDocuments([a, b], "Whole speech")).id;
+    expect((await s.documents.listDocuments()).map((document) => document.title)).toEqual([
+      "Whole speech",
+    ]);
+    expect((await s.documents.getDocumentRow(combined)).text).toBe(
       "We want peace. We reject war.\n\nThe wars must end, and peace must follow.",
     );
-    expect(tagged(combined)).toEqual([
+    expect(await tagged(combined)).toEqual([
       "peace=Positive",
       "war=Very negative",
       "wars=Negative",
       "peace=Very positive",
     ]);
 
-    // Editing before the tags shifts them; editing a tagged word clears only that tag.
-    const text = s.documents.getDocumentRow(combined).text;
-    expect(s.documents.updateDocumentText(combined, `Tonight: ${text}`)).toEqual({ cleared: 0 });
-    expect(tagged(combined)).toHaveLength(4);
-    const edited = s.documents.getDocumentRow(combined).text.replace("reject war", "reject conflict");
-    expect(s.documents.updateDocumentText(combined, edited)).toEqual({ cleared: 1 });
-    expect(tagged(combined)).toEqual(["peace=Positive", "wars=Negative", "peace=Very positive"]);
+    const text = (await s.documents.getDocumentRow(combined)).text;
+    expect(await s.documents.updateDocumentText(combined, `Tonight: ${text}`)).toEqual({
+      cleared: 0,
+    });
+    expect(await tagged(combined)).toHaveLength(4);
+    const edited = (await s.documents.getDocumentRow(combined)).text.replace(
+      "reject war",
+      "reject conflict",
+    );
+    expect(await s.documents.updateDocumentText(combined, edited)).toEqual({ cleared: 1 });
+    expect(await tagged(combined)).toEqual([
+      "peace=Positive",
+      "wars=Negative",
+      "peace=Very positive",
+    ]);
 
-    const offset = s.documents.getDocumentRow(combined).text.indexOf("The wars");
-    const split = s.documents.splitDocument(combined, offset, { second: "Second half" });
+    const offset = (await s.documents.getDocumentRow(combined)).text.indexOf("The wars");
+    const split = await s.documents.splitDocument(combined, offset, { second: "Second half" });
     expect(split.cleared).toBe(0);
-    expect(s.documents.getDocumentRow(split.first).title).toBe("Whole speech (part 1)");
-    expect(s.documents.getDocumentRow(split.second).text).toBe(
+    expect((await s.documents.getDocumentRow(split.first)).title).toBe("Whole speech (part 1)");
+    expect((await s.documents.getDocumentRow(split.second)).text).toBe(
       "The wars must end, and peace must follow.",
     );
-    expect(tagged(split.first)).toEqual(["peace=Positive"]);
-    expect(tagged(split.second)).toEqual(["wars=Negative", "peace=Very positive"]);
+    expect(await tagged(split.first)).toEqual(["peace=Positive"]);
+    expect(await tagged(split.second)).toEqual(["wars=Negative", "peace=Very positive"]);
   });
 
-  it("counts terms in all documents or only the selected ones", () => {
-    const [first, second] = s.documents.listDocuments();
-    const all = s.frequency.getFrequency();
-    const row = (table: typeof all, term: string) => table.rows.find((r) => r.term === term)!;
+  it("counts terms in all documents or only the selected ones", async () => {
+    const [first, second] = await s.documents.listDocuments();
+    const all = await s.frequency.getFrequency();
+    const row = (table: typeof all, term: string) => table.rows.find((entry) => entry.term === term)!;
     expect(row(all, "peace").total).toBe(2);
     expect(row(all, "war").total).toBe(1);
     expect(all.grandTotal).toBe(3);
 
-    const one = s.frequency.getFrequency([second.id]);
-    expect(one.documents.map((d) => d.id)).toEqual([second.id]);
-    expect(one.grandTotal + s.frequency.getFrequency([first.id]).grandTotal).toBe(all.grandTotal);
+    const one = await s.frequency.getFrequency([second.id]);
+    expect(one.documents.map((document) => document.id)).toEqual([second.id]);
+    expect(one.grandTotal + (await s.frequency.getFrequency([first.id])).grandTotal).toBe(
+      all.grandTotal,
+    );
   });
 
-  it("exports every occurrence with its tone, using the default when none is set", () => {
-    const id = addDocument("Untagged", "Peace, peace, and no war.");
-    tag(id, "war", 0, "Negative");
-    const lines = s.frequency.occurrencesCsv([id]).trim().split("\r\n");
-    expect(lines[0]).toBe("document,term,matched_text,position,tone,tone_score,tone_set_by,context");
+  it("exports every occurrence with its tone, using the default when none is set", async () => {
+    const id = await addDocument("Untagged", "Peace, peace, and no war.");
+    await tag(id, "war", 0, "Negative");
+    const lines = (await s.frequency.occurrencesCsv([id])).trim().split("\r\n");
+    expect(lines[0]).toBe(
+      "document,term,matched_text,position,tone,tone_score,tone_set_by,context",
+    );
     expect(lines.slice(1).map((line) => line.split(",").slice(1, 7).join(","))).toEqual([
       "peace,Peace,0,Neutral,0,default",
       "peace,peace,7,Neutral,0,default",
       "war,war,21,Negative,-1,user",
     ]);
-    s.documents.deleteDocument(id);
+    await s.documents.deleteDocument(id);
   });
 
-  it("drops tags that stop matching when the term list changes", () => {
-    const id = addDocument("Budget", "A tax cut is not a tax rise.");
-    tag(id, "tax", 0, "Positive");
-    tag(id, "tax", 1, "Negative");
-    // "tax cut" now owns the first two words, so the tag on that "tax" is stale.
-    s.terms.createTerm({ text: "tax cut" });
-    expect(tagged(id)).toEqual(["tax=Negative"]);
-    s.documents.deleteDocument(id);
+  it("drops tags that stop matching when the term list changes", async () => {
+    const id = await addDocument("Budget", "A tax cut is not a tax rise.");
+    await tag(id, "tax", 0, "Positive");
+    await tag(id, "tax", 1, "Negative");
+    await s.terms.createTerm({ text: "tax cut" });
+    expect(await tagged(id)).toEqual(["tax=Negative"]);
+    await s.documents.deleteDocument(id);
   });
 
-  it("returns occurrences to the default when their tone is deleted", () => {
-    const id = addDocument("Tone", "Lasting peace.");
-    const mixed = s.tones.createTone({ name: "Mixed", color: "#7c3aed" });
-    const span = tag(id, "peace", 0, "Mixed");
-    expect(s.tones.listTonesWithUsage().find((tone) => tone.id === mixed.id)!.usage).toBe(1);
-    s.tones.deleteTone(mixed.id);
-    expect(s.annotations.listAnnotations(id)).toEqual([]);
-    expect(() => s.tones.deleteTone(toneId("Neutral"))).toThrow(/default tone cannot be deleted/);
-    expect(() => s.annotations.setTone(id, span, mixed.id)).toThrow(/no longer exists/);
-    s.documents.deleteDocument(id);
+  it("returns occurrences to the default when their tone is deleted", async () => {
+    const id = await addDocument("Tone", "Lasting peace.");
+    const mixed = await s.tones.createTone({ name: "Mixed", color: "#7c3aed" });
+    const span = await tag(id, "peace", 0, "Mixed");
+    expect(
+      (await s.tones.listTonesWithUsage()).find((tone) => tone.id === mixed.id)!.usage,
+    ).toBe(1);
+    await s.tones.deleteTone(mixed.id);
+    expect(await s.annotations.listAnnotations(id)).toEqual([]);
+    await expect(s.tones.deleteTone(await toneId("Neutral"))).rejects.toThrow(
+      /default tone cannot be deleted/,
+    );
+    await expect(s.annotations.setTone(id, span, mixed.id)).rejects.toThrow(/no longer exists/);
+    await s.documents.deleteDocument(id);
   });
 
-  it("confirms or discards AI suggestions without touching the user's tags", () => {
+  it("confirms or discards AI suggestions without touching the user's tags", async () => {
     const { getDb, schema } = s.db;
-    const id = addDocument("Suggestions", "Peace now. Peace always. No war.");
-    const mine = tag(id, "Peace", 0, "Positive");
-    const peace = s.terms.listTerms().find((term) => term.text === "peace")!.id;
-    getDb()
-      .insert(schema.annotations)
-      .values({
-        documentId: id,
-        termId: peace,
-        start: 11,
-        end: 16,
-        toneId: toneId("Very positive"),
-        source: "ai",
-        reason: "Emphatic repetition.",
-      })
-      .run();
+    const id = await addDocument("Suggestions", "Peace now. Peace always. No war.");
+    const mine = await tag(id, "Peace", 0, "Positive");
+    const peace = (await s.terms.listTerms()).find((term) => term.text === "peace")!.id;
+    const db = await getDb();
+    await db.insert(schema.annotations).values({
+      documentId: id,
+      termId: peace,
+      start: 11,
+      end: 16,
+      toneId: await toneId("Very positive"),
+      source: "ai",
+      reason: "Emphatic repetition.",
+    });
 
-    expect(s.annotations.discardSuggestions(id)).toEqual({ discarded: 1 });
-    expect(s.annotations.listAnnotations(id).map((a) => a.start)).toEqual([mine.start]);
+    expect(await s.annotations.discardSuggestions(id)).toEqual({ discarded: 1 });
+    expect((await s.annotations.listAnnotations(id)).map((annotation) => annotation.start)).toEqual([
+      mine.start,
+    ]);
 
-    getDb()
-      .insert(schema.annotations)
-      .values({ documentId: id, termId: peace, start: 11, end: 16, toneId: toneId("Negative"), source: "ai" })
-      .run();
-    expect(s.annotations.confirmSuggestions(id)).toEqual({ confirmed: 1 });
-    expect(s.annotations.listAnnotations(id).every((a) => a.source === "user")).toBe(true);
-    s.documents.deleteDocument(id);
+    await db.insert(schema.annotations).values({
+      documentId: id,
+      termId: peace,
+      start: 11,
+      end: 16,
+      toneId: await toneId("Negative"),
+      source: "ai",
+    });
+    expect(await s.annotations.confirmSuggestions(id)).toEqual({ confirmed: 1 });
+    expect(
+      (await s.annotations.listAnnotations(id)).every((annotation) => annotation.source === "user"),
+    ).toBe(true);
+    await s.documents.deleteDocument(id);
   });
 
-  it("accepting a suggested term adds it once and stops highlighting it everywhere", () => {
+  it("accepting a suggested term adds it once and stops highlighting it everywhere", async () => {
     const { getDb, schema } = s.db;
-    const one = addDocument("One", "The blockade holds. The quarantine holds.");
-    const two = addDocument("Two", "A blockade is an act of war.");
-    const insert = (text: string) =>
-      getDb()
+    const one = await addDocument("One", "The blockade holds. The quarantine holds.");
+    const two = await addDocument("Two", "A blockade is an act of war.");
+    const db = await getDb();
+    const insert = async (text: string) => {
+      const [row] = await db
         .insert(schema.termSuggestions)
         .values({ text, normalized: text.toLowerCase(), rationale: "Central to the crisis." })
-        .returning({ id: schema.termSuggestions.id })
-        .get().id;
-    const blockade = insert("blockade");
-    const quarantine = insert("quarantine");
+        .returning({ id: schema.termSuggestions.id });
+      return row.id;
+    };
+    const blockade = await insert("blockade");
+    const quarantine = await insert("quarantine");
 
-    const before = s.suggestions.listSuggestions();
-    expect(before.pending.map((p) => [p.text, p.total])).toEqual([
+    const before = await s.suggestions.listSuggestions();
+    expect(before.pending.map((suggestion) => [suggestion.text, suggestion.total])).toEqual([
       ["blockade", 2],
       ["quarantine", 1],
     ]);
     expect(before.pending[0].perDocument).toEqual({ [one]: 1, [two]: 1 });
 
-    s.suggestions.decideSuggestion(blockade, "accepted");
-    expect(s.terms.listTerms().filter((term) => term.text === "blockade")).toHaveLength(1);
-    expect(s.suggestions.listSuggestions().pending.map((p) => p.text)).toEqual(["quarantine"]);
-    expect(() => s.suggestions.decideSuggestion(blockade, "rejected")).toThrow(/already on the term list/);
+    await s.suggestions.decideSuggestion(blockade, "accepted");
+    expect(
+      (await s.terms.listTerms()).filter((term) => term.text === "blockade"),
+    ).toHaveLength(1);
+    expect((await s.suggestions.listSuggestions()).pending.map((suggestion) => suggestion.text)).toEqual([
+      "quarantine",
+    ]);
+    await expect(s.suggestions.decideSuggestion(blockade, "rejected")).rejects.toThrow(
+      /already on the term list/,
+    );
 
-    s.suggestions.decideSuggestion(quarantine, "rejected");
-    expect(s.suggestions.listSuggestions()).toEqual({
+    await s.suggestions.decideSuggestion(quarantine, "rejected");
+    expect(await s.suggestions.listSuggestions()).toEqual({
       pending: [],
       rejected: [{ id: quarantine, text: "quarantine" }],
     });
-    expect(s.terms.listTerms().some((term) => term.text === "quarantine")).toBe(false);
+    expect((await s.terms.listTerms()).some((term) => term.text === "quarantine")).toBe(false);
 
-    s.suggestions.decideSuggestion(quarantine, "pending");
-    expect(s.suggestions.listSuggestions().pending.map((p) => p.text)).toEqual(["quarantine"]);
+    await s.suggestions.decideSuggestion(quarantine, "pending");
+    expect((await s.suggestions.listSuggestions()).pending.map((suggestion) => suggestion.text)).toEqual([
+      "quarantine",
+    ]);
   });
 });

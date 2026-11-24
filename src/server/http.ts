@@ -1,6 +1,8 @@
 import { connection, type NextRequest } from "next/server";
 import { z } from "zod";
 import { AiConfigError } from "../lib/ai/models";
+import { AuthError } from "../lib/auth/errors";
+import { requireUser } from "../lib/supabase/server";
 
 export class HttpError extends Error {
   constructor(
@@ -50,7 +52,9 @@ export async function parseBody<T extends z.ZodType>(
 }
 
 function describe(error: unknown): { status: number; message: string } {
-  if (error instanceof HttpError) return { status: error.status, message: error.message };
+  if (error instanceof HttpError || error instanceof AuthError) {
+    return { status: error.status, message: error.message };
+  }
   if (error instanceof AiConfigError) return { status: 400, message: error.message };
   if (error instanceof RangeError) return { status: 400, message: error.message };
   const message = error instanceof Error ? error.message : String(error);
@@ -74,6 +78,7 @@ export function route<P = Record<string, never>>(handler: Handler<P>) {
     // Outside the try: during a build this rejects by design, and Next handles it.
     await connection();
     try {
+      await requireUser();
       const result = await handler(request, await context.params);
       if (result instanceof Response) return result;
       return Response.json(result ?? { ok: true });

@@ -22,7 +22,7 @@ export const GET = route<Params>((_request, { id }) => listAnnotations(parseId(i
 
 export const PUT = route<Params>(async (request, { id }) => {
   const { start, end, toneId } = await parseBody(request, put);
-  setTone(parseId(id, "Document"), { start, end }, toneId);
+  await setTone(parseId(id, "Document"), { start, end }, toneId);
 });
 
 /** Bulk actions on the document's unconfirmed AI suggestions. */

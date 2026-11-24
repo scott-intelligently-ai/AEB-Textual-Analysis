@@ -6,5 +6,5 @@ const body = z.object({ status: z.enum(["pending", "accepted", "rejected"]) });
 
 export const PATCH = route<{ id: string }>(async (request, { id }) => {
   const { status } = await parseBody(request, body);
-  decideSuggestion(parseId(id, "Suggestion"), status);
+  await decideSuggestion(parseId(id, "Suggestion"), status);
 });

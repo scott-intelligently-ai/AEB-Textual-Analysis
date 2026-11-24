@@ -12,6 +12,6 @@ const body = z.object({
 export const GET = route(() => settingsResponse());
 
 export const PUT = route(async (request) => {
-  updateSettings(await parseBody(request, body));
+  await updateSettings(await parseBody(request, body));
   return settingsResponse();
 });

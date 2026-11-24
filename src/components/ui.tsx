@@ -265,7 +265,8 @@ export function Modal({ title, onClose, children, footer, wide = false }: ModalP
 
 /** Parses the database's UTC timestamps ("YYYY-MM-DD HH:MM:SS") for display. */
 export function formatDate(timestamp: string): string {
-  const date = new Date(`${timestamp.replace(" ", "T")}Z`);
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(timestamp);
+  const date = new Date(hasZone ? timestamp : `${timestamp.replace(" ", "T")}Z`);
   return Number.isNaN(date.getTime())
     ? timestamp
     : date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });

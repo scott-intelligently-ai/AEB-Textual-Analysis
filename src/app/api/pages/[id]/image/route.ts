@@ -1,12 +1,12 @@
-import fs from "node:fs";
 import { notFound, parseId, route } from "@/server/http";
+import { getObject } from "@/server/storage";
 import { getPage } from "@/server/uploads";
 
 export const GET = route<{ id: string }>(async (_request, { id }) => {
-  const page = getPage(parseId(id, "Page"));
+  const page = await getPage(parseId(id, "Page"));
   let image: Buffer;
   try {
-    image = await fs.promises.readFile(page.imagePath);
+    image = await getObject(page.storagePath);
   } catch {
     throw notFound("Page image");
   }

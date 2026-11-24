@@ -6,8 +6,8 @@ import { getDocumentRows } from "./documents";
 import { listTerms, termPatterns } from "./terms";
 import { listTones } from "./tones";
 
-export function getFrequency(documentIds?: number[]): FrequencyTable {
-  return frequencyTable(getDocumentRows(documentIds), termPatterns());
+export async function getFrequency(documentIds?: number[]): Promise<FrequencyTable> {
+  return frequencyTable(await getDocumentRows(documentIds), await termPatterns());
 }
 
 function snippet(text: string, start: number, end: number, radius = 80): string {
@@ -17,18 +17,19 @@ function snippet(text: string, start: number, end: number, radius = 80): string 
 }
 
 /** One CSV row per term occurrence, with its tone, for analysis elsewhere. */
-export function occurrencesCsv(documentIds?: number[]): string {
-  const documents = getDocumentRows(documentIds);
-  const terms = new Map(listTerms().map((term) => [term.id, term.text]));
-  const patterns = termPatterns();
-  const tones = listTones();
+export async function occurrencesCsv(documentIds?: number[]): Promise<string> {
+  const documents = await getDocumentRows(documentIds);
+  const terms = new Map((await listTerms()).map((term) => [term.id, term.text]));
+  const patterns = await termPatterns();
+  const tones = await listTones();
   const toneById = new Map(tones.map((tone) => [tone.id, tone]));
   const fallback = tones.find((tone) => tone.isDefault);
+  const db = await getDb();
 
   const annotations =
     documents.length === 0
       ? []
-      : getDb()
+      : await db
           .select()
           .from(schema.annotations)
           .where(
@@ -36,9 +37,8 @@ export function occurrencesCsv(documentIds?: number[]): string {
               schema.annotations.documentId,
               documents.map((document) => document.id),
             ),
-          )
-          .all();
-  const tagged = new Map(annotations.map((a) => [`${a.documentId}:${spanKey(a)}`, a]));
+          );
+  const tagged = new Map(annotations.map((annotation) => [`${annotation.documentId}:${spanKey(annotation)}`, annotation]));
 
   const rows: (string | number)[][] = [
     ["document", "term", "matched_text", "position", "tone", "tone_score", "tone_set_by", "context"],

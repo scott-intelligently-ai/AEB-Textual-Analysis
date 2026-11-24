@@ -12,16 +12,17 @@ const body = z.object({
 
 export const POST = route<{ id: string }>(async (request, { id }) => {
   const { provider, failedOnly } = await parseBody(request, body);
-  const upload = getUpload(parseId(id, "Upload"));
+  const upload = await getUpload(parseId(id, "Upload"));
   const pages = upload.pages.filter(
     (page) =>
       page.ocrStatus !== "pending" &&
       page.ocrStatus !== "processing" &&
       (!failedOnly || page.ocrStatus === "error"),
   );
-  enqueueOcr(
+  const settings = await getSettings();
+  await enqueueOcr(
     pages.map((page) => page.id),
-    provider ?? getSettings().ocrProvider,
+    provider ?? settings.ocrProvider,
   );
   return { queued: pages.length };
 });

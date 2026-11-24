@@ -1,24 +1,17 @@
-import { badRequest, route } from "@/server/http";
-import { createUpload, listUploads, type UploadSummary } from "@/server/uploads";
+import { z } from "zod";
+import { parseBody, route } from "@/server/http";
+import { listUploads, prepareUpload } from "@/server/uploads";
+
+const body = z.object({
+  filename: z.string(),
+  mimeType: z.string(),
+  size: z.number().positive(),
+});
 
 export const GET = route(() => listUploads());
 
-export const POST = route(async (request) => {
-  const form = await request.formData();
-  const files = form.getAll("files").filter((entry): entry is File => entry instanceof File);
-  if (files.length === 0) throw badRequest("Choose at least one file to upload.");
-
-  const uploads: UploadSummary[] = [];
-  const failures: { filename: string; error: string }[] = [];
-  for (const file of files) {
-    try {
-      uploads.push(await createUpload(file));
-    } catch (error) {
-      failures.push({
-        filename: file.name,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-  return { uploads, failures };
-});
+/**
+ * Reserves a scan and returns a token the browser uses to upload the file
+ * straight to storage. The file itself never passes through this server.
+ */
+export const POST = route(async (request) => prepareUpload(await parseBody(request, body)));

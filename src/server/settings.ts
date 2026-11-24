@@ -17,14 +17,9 @@ const DEFAULTS: AppSettings = {
   analysisProvider: "anthropic",
 };
 
-export function getSettings(): AppSettings {
-  const stored = new Map(
-    getDb()
-      .select()
-      .from(schema.settings)
-      .all()
-      .map((row) => [row.key, row.value]),
-  );
+export async function getSettings(): Promise<AppSettings> {
+  const db = await getDb();
+  const stored = new Map((await db.select().from(schema.settings)).map((row) => [row.key, row.value]));
   const provider = (key: "ocrProvider" | "analysisProvider") => {
     const value = stored.get(key);
     return isProvider(value) ? value : DEFAULTS[key];
@@ -36,18 +31,18 @@ export function getSettings(): AppSettings {
   };
 }
 
-export function updateSettings(patch: Partial<AppSettings>): AppSettings {
-  const db = getDb();
+export async function updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
+  const db = await getDb();
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue;
-    db.insert(schema.settings)
+    await db
+      .insert(schema.settings)
       .values({ key, value })
-      .onConflictDoUpdate({ target: schema.settings.key, set: { value } })
-      .run();
+      .onConflictDoUpdate({ target: schema.settings.key, set: { value } });
   }
   return getSettings();
 }
 
-export function settingsResponse(): SettingsResponse {
-  return { ...getSettings(), providers: providerInfo() };
+export async function settingsResponse(): Promise<SettingsResponse> {
+  return { ...(await getSettings()), providers: providerInfo() };
 }

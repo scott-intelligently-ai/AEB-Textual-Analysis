@@ -5,51 +5,62 @@ import { useRef, useState } from "react";
 import { useFeedback } from "@/components/feedback";
 import { AlertIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import { Badge, Button, Card, IconButton, Spinner, cx } from "@/components/ui";
-import { send } from "@/lib/client/api";
+import { errorMessage, send } from "@/lib/client/api";
+import { uploadWithTicket } from "@/lib/client/storage";
 import type { UploadSummary } from "@/lib/client/types";
 import { countUncertain } from "@/lib/text/transcription";
 
 const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.avif";
 
-interface UploadResponse {
-  uploads: UploadSummary[];
-  failures: { filename: string; error: string }[];
+interface UploadTicket {
+  id: number;
+  path: string;
+  token: string;
 }
 
 export function isBusy(upload: UploadSummary): boolean {
-  return upload.pages.some(
-    (page) => page.ocrStatus === "pending" || page.ocrStatus === "processing",
+  return (
+    upload.status === "queued" ||
+    upload.status === "rendering" ||
+    upload.pages.some((page) => page.ocrStatus === "pending" || page.ocrStatus === "processing")
   );
 }
 
 export function UploadDropzone() {
-  const { notify, notifyError } = useFeedback();
+  const { notify } = useFeedback();
   const input = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [failures, setFailures] = useState<UploadResponse["failures"]>([]);
+  const [failures, setFailures] = useState<{ filename: string; error: string }[]>([]);
 
   async function upload(files: File[]) {
     if (files.length === 0) return;
-    const form = new FormData();
-    for (const file of files) form.append("files", file);
     setUploading(true);
     setFailures([]);
-    try {
-      const result = await send<UploadResponse>("POST", "/api/uploads", form);
-      setFailures(result.failures);
-      if (result.uploads.length > 0) {
-        const pages = result.uploads.reduce((sum, u) => sum + u.pages.length, 0);
-        notify(
-          `Uploaded ${result.uploads.length} file${result.uploads.length === 1 ? "" : "s"} (${pages} page${pages === 1 ? "" : "s"}). Converting to text…`,
-        );
+    const failed: { filename: string; error: string }[] = [];
+    let uploaded = 0;
+    for (const file of files) {
+      try {
+        const ticket = await send<UploadTicket>("POST", "/api/uploads", {
+          filename: file.name,
+          mimeType: file.type || "application/octet-stream",
+          size: file.size,
+        });
+        await uploadWithTicket(ticket.path, ticket.token, file);
+        await send("POST", `/api/uploads/${ticket.id}/complete`);
+        uploaded += 1;
+      } catch (error) {
+        failed.push({ filename: file.name, error: errorMessage(error) });
       }
-    } catch (error) {
-      notifyError(error);
-    } finally {
-      setUploading(false);
-      if (input.current) input.current.value = "";
     }
+    setFailures(failed);
+    if (uploaded > 0) {
+      notify(
+        `Uploaded ${uploaded} file${uploaded === 1 ? "" : "s"}. Converting to text in the background…`,
+      );
+    }
+    setUploading(false);
+    if (input.current) input.current.value = "";
   }
 
   return (
@@ -80,7 +91,7 @@ export function UploadDropzone() {
           </p>
         </div>
         <Button variant="primary" busy={uploading} onClick={() => input.current?.click()}>
-          {uploading ? "Preparing pages…" : "Choose files"}
+          {uploading ? "Uploading…" : "Choose files"}
         </Button>
         <input
           ref={input}
@@ -112,7 +123,8 @@ export function UploadRow({ upload }: { upload: UploadSummary }) {
   const failed = upload.pages.filter((page) => page.ocrStatus === "error").length;
   const busy = isBusy(upload);
   const uncertain = upload.pages.reduce((sum, page) => sum + countUncertain(page.ocrText), 0);
-  const ready = done === total;
+  const preparing = total === 0 && (upload.status === "queued" || upload.status === "rendering");
+  const ready = total > 0 && done === total && upload.status === "ready";
 
   async function createDocument() {
     setWorking("create");
@@ -168,8 +180,15 @@ export function UploadRow({ upload }: { upload: UploadSummary }) {
             </span>
             {busy ? (
               <Badge tone="indigo">
-                <Spinner className="size-3" /> Converting {done} of {total}
+                <Spinner className="size-3" />
+                {preparing ? "Preparing pages" : `Converting ${done} of ${total}`}
               </Badge>
+            ) : upload.status === "error" ? (
+              <Badge tone="red">
+                <AlertIcon /> {upload.error ?? "This scan could not be prepared."}
+              </Badge>
+            ) : upload.status === "awaiting_file" ? (
+              <Badge tone="amber">Upload did not finish</Badge>
             ) : failed > 0 ? (
               <Badge tone="red">
                 <AlertIcon /> {failed} page{failed === 1 ? "" : "s"} failed
@@ -196,17 +215,33 @@ export function UploadRow({ upload }: { upload: UploadSummary }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {upload.status === "error" && !busy ? (
+            <Button
+              size="sm"
+              busy={working === "retry"}
+              onClick={() => {
+                setWorking("retry");
+                void send("POST", `/api/uploads/${upload.id}/complete`)
+                  .catch(notifyError)
+                  .finally(() => setWorking(null));
+              }}
+            >
+              Try again
+            </Button>
+          ) : null}
           {failed > 0 && !busy ? (
             <Button size="sm" busy={working === "retry"} onClick={retryFailed}>
               Retry failed pages
             </Button>
           ) : null}
-          <Link
-            href={`/uploads/${upload.id}`}
-            className="inline-flex items-center rounded-md bg-white px-2.5 py-1 text-xs font-medium text-zinc-800 shadow-sm ring-1 ring-zinc-300 ring-inset hover:bg-zinc-50"
-          >
-            Review pages
-          </Link>
+          {total > 0 ? (
+            <Link
+              href={`/uploads/${upload.id}`}
+              className="inline-flex items-center rounded-md bg-white px-2.5 py-1 text-xs font-medium text-zinc-800 shadow-sm ring-1 ring-zinc-300 ring-inset hover:bg-zinc-50"
+            >
+              Review pages
+            </Link>
+          ) : null}
           <Button
             size="sm"
             variant={upload.documents.length === 0 ? "primary" : "secondary"}
@@ -222,7 +257,7 @@ export function UploadRow({ upload }: { upload: UploadSummary }) {
           </IconButton>
         </div>
       </div>
-      {busy ? (
+      {busy && total > 0 ? (
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-zinc-100">
           <div
             className="h-full rounded-full bg-indigo-500 transition-all"

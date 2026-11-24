@@ -6,5 +6,5 @@ const body = z.object({ text: z.string() });
 
 export const PATCH = route<{ id: string }>(async (request, { id }) => {
   const { text } = await parseBody(request, body);
-  updatePageText(parseId(id, "Page"), text);
+  await updatePageText(parseId(id, "Page"), text);
 });

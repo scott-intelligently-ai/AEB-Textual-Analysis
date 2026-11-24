@@ -1,9 +1,5 @@
-import fs from "node:fs";
-import path from "node:path";
-import Database from "better-sqlite3";
-import { inArray } from "drizzle-orm";
-import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import * as schema from "./schema";
 
 export const DEFAULT_TONES = [
@@ -14,51 +10,51 @@ export const DEFAULT_TONES = [
   { name: "Very positive", color: "#047857", score: 2, isDefault: false },
 ];
 
-export type Db = BetterSQLite3Database<typeof schema>;
+export type Db = PostgresJsDatabase<typeof schema>;
 
-export function dataDir(): string {
-  return process.env.DATA_DIR
-    ? path.resolve(process.env.DATA_DIR)
-    : path.join(process.cwd(), "data");
+const globalForDb = globalThis as unknown as { __speechDb?: Promise<Db> };
+
+/** Used by the test setup to install an in-memory database before anything queries. */
+export function setDatabase(db: Promise<Db>): void {
+  globalForDb.__speechDb = db;
 }
 
-export function uploadsDir(): string {
-  return path.join(dataDir(), "uploads");
-}
-
-function open(): Db {
-  fs.mkdirSync(uploadsDir(), { recursive: true });
-  const sqlite = new Database(path.join(dataDir(), "app.db"));
-  sqlite.pragma("journal_mode = WAL");
-  sqlite.pragma("foreign_keys = ON");
-  const db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder: path.join(process.cwd(), "drizzle") });
-
-  if (db.select().from(schema.tones).limit(1).all().length === 0) {
-    db.insert(schema.tones)
-      .values(DEFAULT_TONES.map((tone, i) => ({ ...tone, sortOrder: i })))
-      .run();
+export function getDb(): Promise<Db> {
+  if (!globalForDb.__speechDb) {
+    if (process.env.VITEST) {
+      throw new Error("The test database was not installed before it was used.");
+    }
+    globalForDb.__speechDb = openPostgres();
   }
+  return globalForDb.__speechDb;
+}
 
-  // OCR runs inside this process, so a page still marked as queued or running
-  // when the database is opened was cut off by a restart.
-  db.update(schema.pages)
-    .set({
-      ocrStatus: "error",
-      ocrError: "Interrupted by a restart. Run OCR again.",
-    })
-    .where(inArray(schema.pages.ocrStatus, ["pending", "processing"]))
-    .run();
-
+async function openPostgres(): Promise<Db> {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is not set. Use the Supabase pooler connection string (port 6543).",
+    );
+  }
+  const max = Number(process.env.DATABASE_POOL_MAX ?? 1);
+  const client = postgres(url, {
+    // Required for Supabase's transaction pooler, which does not support prepared statements.
+    prepare: false,
+    max: Number.isInteger(max) && max > 0 ? max : 1,
+    idle_timeout: 20,
+  });
+  const db = drizzle(client, { schema });
+  await seed(db);
   return db;
 }
 
-// Reuse one connection across dev-server hot reloads.
-const globalForDb = globalThis as unknown as { __speechDb?: Db };
-
-export function getDb(): Db {
-  if (!globalForDb.__speechDb) globalForDb.__speechDb = open();
-  return globalForDb.__speechDb;
+export async function seed(db: Db): Promise<void> {
+  const existing = await db.select({ id: schema.tones.id }).from(schema.tones).limit(1);
+  if (existing.length > 0) return;
+  await db
+    .insert(schema.tones)
+    .values(DEFAULT_TONES.map((tone, sortOrder) => ({ ...tone, sortOrder })))
+    .onConflictDoNothing();
 }
 
 export { schema };

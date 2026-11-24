@@ -21,20 +21,17 @@ export interface SuggestionsResponse {
   rejected: { id: number; text: string }[];
 }
 
-function allSuggestions(): schema.TermSuggestion[] {
-  return getDb()
-    .select()
-    .from(schema.termSuggestions)
-    .orderBy(asc(schema.termSuggestions.id))
-    .all();
+async function allSuggestions(): Promise<schema.TermSuggestion[]> {
+  const db = await getDb();
+  return db.select().from(schema.termSuggestions).orderBy(asc(schema.termSuggestions.id));
 }
 
-export function listSuggestions(): SuggestionsResponse {
-  const suggestions = allSuggestions();
+export async function listSuggestions(): Promise<SuggestionsResponse> {
+  const suggestions = await allSuggestions();
   const pending = suggestions.filter((suggestion) => suggestion.status === "pending");
   const matcher = buildMatcher(pending.map(({ id, text }) => ({ id, text })));
   const counts = new Map<number, Record<number, number>>(pending.map(({ id }) => [id, {}]));
-  for (const document of getDocumentRows()) {
+  for (const document of await getDocumentRows()) {
     for (const occurrence of matcher.find(document.text)) {
       const perDocument = counts.get(occurrence.termId)!;
       perDocument[document.id] = (perDocument[document.id] ?? 0) + 1;
@@ -63,12 +60,12 @@ export interface GenerateResult {
 }
 
 export async function generateSuggestions(documentIds?: number[]): Promise<GenerateResult> {
-  const documents = getDocumentRows(documentIds);
+  const documents = await getDocumentRows(documentIds);
   if (documents.length === 0) throw badRequest("There are no documents to read yet.");
 
-  const settings = getSettings();
-  const terms = listTerms();
-  const before = allSuggestions();
+  const settings = await getSettings();
+  const terms = await listTerms();
+  const before = await allSuggestions();
   const candidates = await suggestTerms({
     provider: settings.analysisProvider,
     purpose: settings.analysisPurpose,
@@ -81,8 +78,8 @@ export async function generateSuggestions(documentIds?: number[]): Promise<Gener
 
   // Re-read after the request: the lists may have changed while it ran.
   const known = new Set([
-    ...listTerms().flatMap((term) => [term.text, ...term.variants].map(normalizeTerm)),
-    ...allSuggestions().map((suggestion) => suggestion.normalized),
+    ...(await listTerms()).flatMap((term) => [term.text, ...term.variants].map(normalizeTerm)),
+    ...(await allSuggestions()).map((suggestion) => suggestion.normalized),
   ]);
   const result: GenerateResult = { added: 0, notFound: [], alreadyKnown: [] };
   const fresh = candidates.filter((candidate) => {
@@ -102,22 +99,22 @@ export async function generateSuggestions(documentIds?: number[]): Promise<Gener
     for (const occurrence of matcher.find(document.text)) found.add(occurrence.termId);
   }
 
-  const db = getDb();
-  fresh.forEach((candidate, i) => {
+  const db = await getDb();
+  for (const [i, candidate] of fresh.entries()) {
     if (!found.has(i)) {
       result.notFound.push(candidate.term);
-      return;
+      continue;
     }
-    db.insert(schema.termSuggestions)
+    await db
+      .insert(schema.termSuggestions)
       .values({
         text: candidate.term,
         normalized: normalizeTerm(candidate.term),
         rationale: candidate.reason,
       })
-      .onConflictDoNothing()
-      .run();
+      .onConflictDoNothing();
     result.added += 1;
-  });
+  }
   return result;
 }
 
@@ -126,26 +123,28 @@ export async function generateSuggestions(documentIds?: number[]): Promise<Gener
  * proposed again. Either way the suggestion stops being pending, which removes
  * its highlight from every document at once. A rejection can be undone.
  */
-export function decideSuggestion(id: number, status: schema.SuggestionStatus): void {
-  const db = getDb();
-  const suggestion = db
+export async function decideSuggestion(
+  id: number,
+  status: schema.SuggestionStatus,
+): Promise<void> {
+  const db = await getDb();
+  const [suggestion] = await db
     .select()
     .from(schema.termSuggestions)
-    .where(eq(schema.termSuggestions.id, id))
-    .get();
+    .where(eq(schema.termSuggestions.id, id));
   if (!suggestion) throw notFound("Suggestion");
   if (suggestion.status === "accepted") {
     throw badRequest("That suggestion is already on the term list. Remove it from Terms instead.");
   }
   if (status === "accepted") {
     const key = normalizeTerm(suggestion.text);
-    const covered = listTerms().some((term) =>
+    const covered = (await listTerms()).some((term) =>
       [term.text, ...term.variants].some((pattern) => normalizeTerm(pattern) === key),
     );
-    if (!covered) createTerm({ text: suggestion.text });
+    if (!covered) await createTerm({ text: suggestion.text });
   }
-  db.update(schema.termSuggestions)
+  await db
+    .update(schema.termSuggestions)
     .set({ status })
-    .where(eq(schema.termSuggestions.id, id))
-    .run();
+    .where(eq(schema.termSuggestions.id, id));
 }
