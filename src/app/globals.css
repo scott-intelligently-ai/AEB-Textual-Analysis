@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background: #fafaf9;
+  color: #18181b;
+}
+
+/* Reading surface for document text: generous measure and leading. */
+.document-text {
+  font-family: var(--font-serif);
+  font-size: 1.0625rem;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A term occurrence. Colour comes from the tone via inline custom properties. */
+.term-mark {
+  color: var(--tone);
+  font-weight: 600;
+  border-radius: 0.25rem;
+  padding: 0.05em 0.2em;
+  margin: 0 -0.05em;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+  transition: box-shadow 120ms ease, background 120ms ease;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.term-mark:hover {
+  background: color-mix(in srgb, var(--tone) 24%, transparent);
+}
+/* Not yet tagged: shown in the default tone's colour without a filled background. */
+.term-mark[data-state="default"] {
+  background: transparent;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--tone) 45%, transparent);
+  border-radius: 0;
+}
+.term-mark[data-state="default"]:hover {
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+}
+/* Suggested by AI and awaiting confirmation. */
+.term-mark[data-state="ai"] {
+  background: color-mix(in srgb, var(--tone) 10%, transparent);
+  outline: 1.5px dashed color-mix(in srgb, var(--tone) 70%, transparent);
+  outline-offset: -1px;
+}
+.term-mark[data-selected="true"] {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--tone);
+  border-radius: 0.25rem;
+}
+.term-mark:focus {
+  outline: none;
+}
+.term-mark:focus-visible:not([data-selected="true"]) {
+  outline: 2px solid var(--tone);
+  outline-offset: 2px;
+}
+.term-mark[data-dimmed="true"] {
+  opacity: 0.3;
+}
+
+/* Term discovery uses its own look so it cannot be mistaken for a tone. */
+.suggestion-mark {
+  background: #fef08a;
+  border-bottom: 2px dashed #a16207;
+  border-radius: 0.2rem 0.2rem 0 0;
+  padding: 0.05em 0.15em;
+  cursor: pointer;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.suggestion-mark:hover,
+.suggestion-mark[data-selected="true"] {
+  background: #fde047;
+}
+.suggestion-mark[data-selected="true"] {
+  box-shadow: 0 0 0 2px #a16207;
+}
+.suggestion-mark:focus-visible {
+  outline: 2px solid #a16207;
+  outline-offset: 2px;
+}
+.existing-term-mark {
+  border-bottom: 1.5px solid #a1a1aa;
+}
+
+.uncertain-mark {
+  background: #fecaca;
+  border-radius: 0.2rem;
+  padding: 0 0.15em;
+  font-weight: 600;
+}

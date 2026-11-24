@@ -1,0 +1,11 @@
+# Railway runs only the scan worker. The website is deployed to Vercel.
+# Railpack is the current builder. Skip the Next.js build; the worker runs
+# TypeScript directly and does not serve the site.
+[build]
+builder = "RAILPACK"
+buildCommand = "echo skip website build"
+
+[deploy]
+startCommand = "npm run worker"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
