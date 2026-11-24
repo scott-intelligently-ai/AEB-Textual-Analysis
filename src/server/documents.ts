@@ -2,7 +2,13 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { getDb, schema, type Db } from "../db";
 import { combineParts, joinPages, rebaseSpans, splitPart } from "../lib/text/documents";
 import { badRequest, notFound } from "./http";
+import { tagsByDocument } from "./taxonomy";
 import { termPatterns } from "./terms";
+
+export interface DocumentTagSummary {
+  id: number;
+  name: string;
+}
 
 export interface DocumentSummary {
   id: number;
@@ -10,6 +16,7 @@ export interface DocumentSummary {
   length: number;
   words: number;
   annotationCount: number;
+  tags: DocumentTagSummary[];
   createdAt: string;
   updatedAt: string;
 }
@@ -28,6 +35,7 @@ export interface DocumentDetail {
   updatedAt: string;
   /** Scanned pages this text came from, for checking against the original. */
   sourcePages: SourcePage[];
+  tags: DocumentTagSummary[];
 }
 
 type NewAnnotation = Omit<schema.Annotation, "id">;
@@ -52,6 +60,7 @@ export async function listDocuments(): Promise<DocumentSummary[]> {
     ).map((row) => [row.documentId, Number(row.count)]),
   );
   const documents = await db.select().from(schema.documents);
+  const tags = await tagsByDocument();
   return documents
     .map((document) => ({
       id: document.id,
@@ -59,6 +68,7 @@ export async function listDocuments(): Promise<DocumentSummary[]> {
       length: document.text.length,
       words: countWords(document.text),
       annotationCount: counts.get(document.id) ?? 0,
+      tags: (tags.get(document.id) ?? []).map((tag) => ({ id: tag.id, name: tag.name })),
       createdAt: document.createdAt,
       updatedAt: document.updatedAt,
     }))
@@ -102,12 +112,14 @@ export async function getDocument(id: number): Promise<DocumentDetail> {
           .innerJoin(schema.uploads, eq(schema.uploads.id, schema.pages.uploadId))
           .where(inArray(schema.pages.id, document.sourcePageIds));
   const byId = new Map(pages.map((page) => [page.id, page]));
+  const tags = (await tagsByDocument()).get(id) ?? [];
   return {
     id: document.id,
     title: document.title,
     text: document.text,
     updatedAt: document.updatedAt,
     sourcePages: document.sourcePageIds.flatMap((pageId) => byId.get(pageId) ?? []),
+    tags: tags.map((tag) => ({ id: tag.id, name: tag.name })),
   };
 }
 

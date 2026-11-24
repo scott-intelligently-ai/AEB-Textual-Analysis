@@ -6,6 +6,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { ToneView } from "@/components/document/ToneView";
 import { FrequencyPage } from "@/components/frequency/FrequencyPage";
+import { ToneDistributionPanel } from "@/components/tones/ToneDistribution";
 import { Button, EmptyState, ErrorBlock, LoadingBlock, PageHeader } from "@/components/ui";
 import { fetcher } from "@/lib/client/api";
 import type { Annotation, DocumentDetail, DocumentSummary, Term, Tone } from "@/lib/client/types";
@@ -53,7 +54,7 @@ export function ToneWorkspace() {
     <>
       <PageHeader
         title="Tones"
-        description="Read a document with its terms highlighted and record the tone of each use. Frequency for the documents you choose is below."
+        description="Read a document with its terms highlighted and record the tone of each use. The distribution of those tones, and frequency for the documents you choose, are below."
         actions={
           <Button onClick={() => setDefining(true)}>Define tones</Button>
         }
@@ -107,6 +108,10 @@ export function ToneWorkspace() {
           <DocumentTones id={current.id} terms={terms} tones={tones} />
         </>
       ) : null}
+
+      <div className="mt-12 border-t border-zinc-200 pt-8">
+        <ToneDistributionPanel />
+      </div>
 
       <div className="mt-12 border-t border-zinc-200 pt-8">
         <FrequencyPage embedded />

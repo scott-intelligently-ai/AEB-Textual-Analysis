@@ -6,8 +6,9 @@ import { use, useState } from "react";
 import useSWR from "swr";
 import { useFeedback } from "@/components/feedback";
 import { PencilIcon, TrashIcon } from "@/components/icons";
+import { DocumentTagDialog, TagList } from "@/components/library/DocumentTags";
 import { RenameDialog } from "@/components/library/DocumentsPanel";
-import { ErrorBlock, IconButton, LoadingBlock } from "@/components/ui";
+import { Button, ErrorBlock, IconButton, LoadingBlock } from "@/components/ui";
 import { ApiError, fetcher, send } from "@/lib/client/api";
 import type { Annotation, DocumentDetail, Term } from "@/lib/client/types";
 import { EditView } from "./EditView";
@@ -17,6 +18,7 @@ export function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { notify, notifyError, confirm } = useFeedback();
   const [renaming, setRenaming] = useState(false);
+  const [tagging, setTagging] = useState(false);
 
   const document = useSWR<DocumentDetail>(`/api/documents/${id}`, fetcher);
   const annotations = useSWR<Annotation[]>(`/api/documents/${id}/annotations`, fetcher);
@@ -80,6 +82,12 @@ export function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
             <TrashIcon />
           </IconButton>
         </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <TagList tags={current.tags} />
+          <Button size="sm" onClick={() => setTagging(true)}>
+            Edit tags
+          </Button>
+        </div>
         <p className="mt-2 text-sm text-zinc-600">
           Correct the text or split this document. Assign a tone to each term on the{" "}
           <Link
@@ -95,6 +103,13 @@ export function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
       <EditView document={current} terms={terms.data} annotations={annotations.data} />
 
       {renaming ? <RenameDialog document={current} onClose={() => setRenaming(false)} /> : null}
+      {tagging ? (
+        <DocumentTagDialog
+          documentId={current.id}
+          selectedIds={current.tags.map((tag) => tag.id)}
+          onClose={() => setTagging(false)}
+        />
+      ) : null}
     </>
   );
 }

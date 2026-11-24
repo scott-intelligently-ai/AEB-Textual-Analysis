@@ -20,6 +20,7 @@ import {
   TextInput,
   formatDate,
 } from "@/components/ui";
+import { DocumentTagDialog, TagList } from "@/components/library/DocumentTags";
 import { errorMessage, send } from "@/lib/client/api";
 import type { DocumentSummary } from "@/lib/client/types";
 
@@ -28,6 +29,7 @@ export function DocumentsPanel({ documents }: { documents: DocumentSummary[] }) 
   const [selected, setSelected] = useState<number[]>([]);
   const [combining, setCombining] = useState(false);
   const [renaming, setRenaming] = useState<DocumentSummary | null>(null);
+  const [tagging, setTagging] = useState<DocumentSummary | null>(null);
 
   // Selection order is kept: it becomes the default order when combining.
   const live = selected.filter((id) => documents.some((document) => document.id === id));
@@ -85,6 +87,7 @@ export function DocumentsPanel({ documents }: { documents: DocumentSummary[] }) 
                 <span className="sr-only">Select</span>
               </th>
               <th className="px-2 py-2">Title</th>
+              <th className="px-2 py-2">Tags</th>
               <th className="px-2 py-2 text-right">Words</th>
               <th className="px-2 py-2 text-right">Tone tags</th>
               <th className="px-2 py-2">Updated</th>
@@ -112,6 +115,14 @@ export function DocumentsPanel({ documents }: { documents: DocumentSummary[] }) 
                   >
                     {document.title}
                   </Link>
+                </td>
+                <td className="px-2 py-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <TagList tags={document.tags} />
+                    <Button size="sm" onClick={() => setTagging(document)}>
+                      Edit tags
+                    </Button>
+                  </div>
                 </td>
                 <td className="px-2 py-2.5 text-right text-zinc-600 tabular-nums">
                   {document.words.toLocaleString()}
@@ -150,6 +161,13 @@ export function DocumentsPanel({ documents }: { documents: DocumentSummary[] }) 
         />
       ) : null}
       {renaming ? <RenameDialog document={renaming} onClose={() => setRenaming(null)} /> : null}
+      {tagging ? (
+        <DocumentTagDialog
+          documentId={tagging.id}
+          selectedIds={tagging.tags.map((tag) => tag.id)}
+          onClose={() => setTagging(null)}
+        />
+      ) : null}
     </>
   );
 }

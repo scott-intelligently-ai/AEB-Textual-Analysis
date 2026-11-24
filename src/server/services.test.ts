@@ -8,6 +8,8 @@ type Services = {
   annotations: typeof import("./annotations");
   frequency: typeof import("./frequency");
   suggestions: typeof import("./suggestions");
+  taxonomy: typeof import("./taxonomy");
+  distribution: typeof import("./distribution");
 };
 let s: Services;
 
@@ -22,6 +24,8 @@ beforeAll(async () => {
     annotations: await import("./annotations"),
     frequency: await import("./frequency"),
     suggestions: await import("./suggestions"),
+    taxonomy: await import("./taxonomy"),
+    distribution: await import("./distribution"),
   };
 });
 
@@ -274,5 +278,74 @@ describe("services", () => {
     expect((await s.suggestions.listSuggestions()).pending.map((suggestion) => suggestion.text)).toEqual([
       "quarantine",
     ]);
+  });
+
+  it("counts tones by term, equivalence, category, subcategory, document, and overall", async () => {
+    const foreign = await s.taxonomy.createCategory("Foreign");
+    const treaties = await s.taxonomy.createCategory("Treaties", foreign.id);
+    await expect(s.taxonomy.createCategory("Pacts", treaties.id)).rejects.toThrow(/subcategory/);
+    await expect(s.taxonomy.createCategory("foreign")).rejects.toThrow(/already a category/);
+    const domestic = await s.taxonomy.createCategory("Domestic");
+
+    const peace = (await s.terms.listTerms()).find((term) => term.text === "peace")!;
+    const war = (await s.terms.listTerms()).find((term) => term.text === "war")!;
+    const tax = (await s.terms.listTerms()).find((term) => term.text === "tax")!;
+    await s.taxonomy.setTermCategories(peace.id, [treaties.id]);
+    await s.taxonomy.setTermCategories(war.id, [foreign.id, domestic.id]);
+    await s.taxonomy.setTermCategories(tax.id, [domestic.id]);
+    expect((await s.terms.listTerms()).find((term) => term.id === peace.id)?.categoryIds).toEqual([
+      treaties.id,
+    ]);
+
+    const conflict = await s.taxonomy.createEquivalence("Conflict", [peace.id, war.id]);
+    const revenue = await s.taxonomy.createEquivalence("Revenue", [tax.id]);
+    await s.taxonomy.setTermEquivalence(tax.id, conflict.id);
+    const afterMove = await s.terms.listTerms();
+    expect(afterMove.find((term) => term.id === tax.id)?.equivalenceId).toBe(conflict.id);
+    expect(afterMove.find((term) => term.id === peace.id)?.equivalenceId).toBe(conflict.id);
+    await s.taxonomy.setTermEquivalence(tax.id, null);
+    expect((await s.terms.listTerms()).find((term) => term.id === tax.id)?.equivalenceId).toBeNull();
+
+    const id = await addDocument("Distribution", "Peace and war.");
+    await tag(id, "war", 0, "Negative");
+    const tagRow = await s.taxonomy.createDocumentTag("Crisis");
+    await s.taxonomy.setDocumentTags(id, [tagRow.id]);
+    const detail = await s.documents.getDocument(id);
+    expect(detail.tags.map((item) => item.name)).toEqual(["Crisis"]);
+    expect(
+      (await s.documents.listDocuments()).find((document) => document.id === id)?.tags,
+    ).toEqual([{ id: tagRow.id, name: "Crisis" }]);
+
+    const category = await s.distribution.getToneDistribution("category", [id]);
+    const names = category.tones.map((tone) => tone.name);
+    const count = (label: string, tone: string) => {
+      const row = category.rows.find((item) => item.label === label);
+      return row?.counts[names.indexOf(tone)] ?? -1;
+    };
+    expect(count("Foreign", "Neutral")).toBe(1);
+    expect(count("Foreign", "Negative")).toBe(1);
+    expect(count("Domestic", "Negative")).toBe(1);
+    expect(count("Domestic", "Neutral")).toBe(0);
+
+    const subcategory = await s.distribution.getToneDistribution("subcategory", [id]);
+    expect(subcategory.rows.map((row) => [row.label, row.total])).toEqual([["Foreign / Treaties", 1]]);
+
+    const together = await s.distribution.getToneDistribution("equivalence", [id]);
+    const conflictRow = together.rows.find((row) => row.label === "Conflict");
+    expect(conflictRow?.total).toBe(2);
+
+    const overall = await s.distribution.getToneDistribution("overall", [id]);
+    expect(overall.rows[0]?.total).toBe(2);
+    const csv = await s.distribution.toneDistributionCsv("overall", [id]);
+    expect(csv.split("\r\n")[0]).toBe(
+      `scope,${overall.tones.map((tone) => tone.name).join(",")},total`,
+    );
+
+    const byDocument = await s.distribution.getToneDistribution("document", [id]);
+    expect(byDocument.rows.map((row) => row.label)).toEqual(["Distribution"]);
+    await s.documents.deleteDocument(id);
+    await s.taxonomy.deleteEquivalence(conflict.id);
+    await s.taxonomy.deleteEquivalence(revenue.id);
+    expect((await s.terms.listTerms()).find((term) => term.id === peace.id)?.equivalenceId).toBeNull();
   });
 });

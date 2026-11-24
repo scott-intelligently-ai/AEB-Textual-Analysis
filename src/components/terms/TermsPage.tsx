@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useRef, useState } from "react";
 import useSWR from "swr";
 import { DiscoverPage } from "@/components/discover/DiscoverPage";
+import { TaxonomyPanel, categoryLabel } from "@/components/terms/TaxonomyPanel";
 import { useFeedback } from "@/components/feedback";
 import { PencilIcon, PlusIcon, SparklesIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import {
@@ -21,7 +22,7 @@ import {
   TextInput,
 } from "@/components/ui";
 import { errorMessage, fetcher, send } from "@/lib/client/api";
-import type { FrequencyTable, ImportResult, Term } from "@/lib/client/types";
+import type { FrequencyTable, ImportResult, Term, TermCategory, TermEquivalence } from "@/lib/client/types";
 import { guessCommaMode, parseTermList, type CommaMode } from "@/lib/text/csv";
 
 const splitVariants = (value: string) =>
@@ -35,6 +36,8 @@ export function TermsPage() {
   const discovering = useSearchParams().get("discover") === "1";
   const { notify, notifyError, confirm } = useFeedback();
   const terms = useSWR<Term[]>("/api/terms", fetcher);
+  const categories = useSWR<TermCategory[]>("/api/term-categories", fetcher);
+  const groups = useSWR<TermEquivalence[]>("/api/term-equivalences", fetcher);
   const frequency = useSWR<FrequencyTable>("/api/frequency", fetcher);
 
   const [text, setText] = useState("");
@@ -98,7 +101,7 @@ export function TermsPage() {
     <>
       <PageHeader
         title="Terms"
-        description="The words and phrases the analysis counts and highlights. Matching ignores case and only matches whole words, so “tax” does not match “taxes”; list other forms as variants to count them under the same term."
+        description="The words and phrases the analysis counts and highlights. Matching ignores case and only matches whole words, so “tax” does not match “taxes”; list other forms as variants to count them under the same term. A term can sit in any number of categories, and terms you mark as equivalent can be counted together."
         actions={
           <>
             <Button onClick={() => router.push("/terms?discover=1")}>
@@ -149,6 +152,8 @@ export function TermsPage() {
         ) : null}
       </Card>
 
+      <TaxonomyPanel terms={terms.data ?? []} />
+
       {terms.error ? (
         <ErrorBlock error={terms.error} />
       ) : !terms.data ? (
@@ -164,6 +169,8 @@ export function TermsPage() {
               <tr>
                 <th className="px-4 py-2">Term</th>
                 <th className="px-2 py-2">Variants</th>
+                <th className="px-2 py-2">Categories</th>
+                <th className="px-2 py-2">Equivalent with</th>
                 <th className="px-2 py-2 text-right">
                   Uses in {documentCount} document{documentCount === 1 ? "" : "s"}
                 </th>
@@ -185,6 +192,14 @@ export function TermsPage() {
                       )}
                     </div>
                   </td>
+                  <td className="px-2 py-2.5">
+                    <CategoryBadges term={term} categories={categories.data ?? []} />
+                  </td>
+                  <td className="px-2 py-2.5 text-zinc-700">
+                    {groups.data?.find((group) => group.id === term.equivalenceId)?.name ?? (
+                      <span className="text-zinc-400">None</span>
+                    )}
+                  </td>
                   <td className="px-2 py-2.5 text-right text-zinc-700 tabular-nums">
                     {totals.get(term.id)?.toLocaleString() ?? "–"}
                   </td>
@@ -205,23 +220,68 @@ export function TermsPage() {
         </Card>
       )}
 
-      {editing ? <EditTermDialog term={editing} onClose={() => setEditing(null)} /> : null}
+      {editing ? (
+        <EditTermDialog
+          term={editing}
+          categories={categories.data ?? []}
+          groups={groups.data ?? []}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
       {importing ? <ImportDialog onClose={() => setImporting(false)} /> : null}
     </>
   );
 }
 
-function EditTermDialog({ term, onClose }: { term: Term; onClose: () => void }) {
+function CategoryBadges({ term, categories }: { term: Term; categories: TermCategory[] }) {
+  const labels = categories
+    .filter((category) => term.categoryIds.includes(category.id))
+    .map((category) => categoryLabel(category, categories))
+    .sort((a, b) => a.localeCompare(b));
+  if (labels.length === 0) return <span className="text-zinc-400">None</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {labels.map((label) => (
+        <Badge key={label} tone="indigo">
+          {label}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+function EditTermDialog({
+  term,
+  categories,
+  groups,
+  onClose,
+}: {
+  term: Term;
+  categories: TermCategory[];
+  groups: TermEquivalence[];
+  onClose: () => void;
+}) {
   const [text, setText] = useState(term.text);
   const [variants, setVariants] = useState(term.variants.join(", "));
+  const [categoryIds, setCategoryIds] = useState<number[]>(term.categoryIds);
+  const [equivalenceId, setEquivalenceId] = useState<number | "">(term.equivalenceId ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const parents = categories.filter((category) => category.parentId === null);
+
+  function toggleCategory(id: number) {
+    setCategoryIds((current) => (current.includes(id) ? current.filter((other) => other !== id) : [...current, id]));
+  }
 
   async function save() {
     setBusy(true);
     setError(null);
     try {
       await send("PATCH", `/api/terms/${term.id}`, { text, variants: splitVariants(variants) });
+      await send("PUT", `/api/terms/${term.id}/categories`, { categoryIds });
+      await send("PUT", `/api/terms/${term.id}/equivalence`, {
+        equivalenceId: equivalenceId === "" ? null : equivalenceId,
+      });
       onClose();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -259,14 +319,90 @@ function EditTermDialog({ term, onClose }: { term: Term; onClose: () => void }) 
           </span>
           <TextInput value={variants} onChange={(event) => setVariants(event.target.value)} />
         </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-zinc-600">Count together with</span>
+          <select
+            value={equivalenceId}
+            onChange={(event) =>
+              setEquivalenceId(event.target.value === "" ? "" : Number(event.target.value))
+            }
+            className="block w-full rounded-md bg-white px-2.5 py-1.5 text-sm text-zinc-900 ring-1 ring-zinc-300 ring-inset"
+          >
+            <option value="">No equivalence group</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <fieldset>
+          <legend className="mb-1 text-xs font-medium text-zinc-600">
+            Categories and subcategories
+          </legend>
+          {categories.length === 0 ? (
+            <p className="text-sm text-zinc-500">No categories yet. Add them on the Terms page.</p>
+          ) : (
+            <ul className="max-h-48 space-y-1 overflow-y-auto">
+              {parents.map((parent) => (
+                <li key={parent.id}>
+                  <CategoryChoice
+                    category={parent}
+                    categories={categories}
+                    selected={categoryIds}
+                    onToggle={toggleCategory}
+                  />
+                  <ul className="pl-5">
+                    {categories
+                      .filter((category) => category.parentId === parent.id)
+                      .map((child) => (
+                        <li key={child.id}>
+                          <CategoryChoice
+                            category={child}
+                            categories={categories}
+                            selected={categoryIds}
+                            onToggle={toggleCategory}
+                          />
+                        </li>
+                      ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+        </fieldset>
         <p className="text-xs leading-5 text-zinc-500">
           Tone tags stay on the places that still match. Tags on wording you remove here are
-          deleted.
+          deleted. A term can belong to more than one category, and to one equivalence group.
         </p>
         {error ? <Notice tone="red">{error}</Notice> : null}
         <button type="submit" className="hidden" />
       </form>
     </Modal>
+  );
+}
+
+function CategoryChoice({
+  category,
+  categories,
+  selected,
+  onToggle,
+}: {
+  category: TermCategory;
+  categories: TermCategory[];
+  selected: number[];
+  onToggle: (id: number) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-zinc-50">
+      <input
+        type="checkbox"
+        className="size-4 rounded border-zinc-300 accent-indigo-600"
+        checked={selected.includes(category.id)}
+        onChange={() => onToggle(category.id)}
+      />
+      <span className="text-zinc-900">{categoryLabel(category, categories)}</span>
+    </label>
   );
 }
 
