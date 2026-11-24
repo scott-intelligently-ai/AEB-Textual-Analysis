@@ -1,10 +1,9 @@
-import sharp from "sharp";
-
 /** Longest edge of a stored page image; plenty for typed text and within model limits. */
 const MAX_EDGE = 2000;
 const PDF_SCALE = 3;
 
 async function toPageJpeg(input: Buffer, page = 0): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
   return sharp(input, { page })
     .rotate()
     .flatten({ background: "#ffffff" })
@@ -26,6 +25,7 @@ export async function renderPages(buffer: Buffer, extension: string): Promise<Bu
       await document.destroy();
     }
   }
+  const sharp = (await import("sharp")).default;
   const { pages = 1 } = await sharp(buffer).metadata();
   const frames = extension === ".gif" ? 1 : pages;
   const images: Buffer[] = [];

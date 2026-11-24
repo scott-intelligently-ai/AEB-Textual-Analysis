@@ -1,5 +1,6 @@
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { postgresOptions } from "./connection";
 import * as schema from "./schema";
 
 export const DEFAULT_TONES = [
@@ -24,7 +25,10 @@ export function getDb(): Promise<Db> {
     if (process.env.VITEST) {
       throw new Error("The test database was not installed before it was used.");
     }
-    globalForDb.__speechDb = openPostgres();
+    globalForDb.__speechDb = openPostgres().catch((error: unknown) => {
+      globalForDb.__speechDb = undefined;
+      throw error;
+    });
   }
   return globalForDb.__speechDb;
 }
@@ -37,12 +41,7 @@ async function openPostgres(): Promise<Db> {
     );
   }
   const max = Number(process.env.DATABASE_POOL_MAX ?? 1);
-  const client = postgres(url, {
-    // Required for Supabase's transaction pooler, which does not support prepared statements.
-    prepare: false,
-    max: Number.isInteger(max) && max > 0 ? max : 1,
-    idle_timeout: 20,
-  });
+  const client = postgres(url, postgresOptions(url, Number.isInteger(max) && max > 0 ? max : 1));
   const db = drizzle(client, { schema });
   await seed(db);
   return db;
