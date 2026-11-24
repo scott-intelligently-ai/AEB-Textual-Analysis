@@ -2,12 +2,24 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { buildMatcher, normalizeTerm, spanKey, type TermPattern } from "../lib/text/match";
 import { badRequest, notFound } from "./http";
-import { createEquivalence, listEquivalences, setTermEquivalence } from "./taxonomy";
+import {
+  createCategory,
+  createEquivalence,
+  deleteEquivalence,
+  listCategories,
+  listEquivalences,
+  setTermCategories,
+  setTermEquivalence,
+} from "./taxonomy";
 
 export interface TermInput {
   text: string;
   variants?: string[];
-  /** Name of an equivalence group. Empty means the term stands alone. */
+  /** Category names to assign to this term. Missing categories are created. */
+  categories?: string[];
+  /** Other terms that should share an equivalence group with this one. */
+  equivalents?: string[];
+  /** Name of an equivalence group. Empty means the term stands alone unless equivalents are listed. */
   equivalence?: string | null;
 }
 
@@ -114,11 +126,13 @@ export interface ImportResult {
   skipped: { text: string; reason: string }[];
   /** Equivalence groups named in the file, with the terms placed in each one. */
   groups: { name: string; terms: string[] }[];
+  /** Categories named in the file, with the terms assigned to each one. */
+  categories: { name: string; terms: string[] }[];
 }
 
 export async function importTerms(inputs: TermInput[]): Promise<ImportResult> {
   const db = await getDb();
-  const result: ImportResult = { added: [], skipped: [], groups: [] };
+  const result: ImportResult = { added: [], skipped: [], groups: [], categories: [] };
   for (const input of inputs) {
     try {
       const [term] = await db.insert(schema.terms).values(await prepare(input)).returning();
@@ -130,38 +144,147 @@ export async function importTerms(inputs: TermInput[]): Promise<ImportResult> {
       });
     }
   }
+  await assignImportedCategories(inputs, result);
+  await ensureImportedEquivalents(inputs, result);
   await assignImportedGroups(inputs, result);
   await pruneOrphanAnnotations();
   return result;
 }
 
-/** Places imported terms into the equivalence groups named in the file. */
-async function assignImportedGroups(inputs: TermInput[], result: ImportResult): Promise<void> {
-  const wanted = inputs.filter((input) => tidy(input.equivalence ?? ""));
+/** Creates categories named in the file and assigns them without removing ones a term already has. */
+async function assignImportedCategories(inputs: TermInput[], result: ImportResult): Promise<void> {
+  const wanted = inputs.filter((input) => (input.categories ?? []).some((item) => tidy(item)));
   if (wanted.length === 0) return;
-  const terms = await listTerms();
-  const byText = new Map(terms.map((term) => [normalizeTerm(term.text), term]));
-  const groups = await listEquivalences();
-  const byGroup = new Map(groups.map((group) => [normalizeTerm(group.name), group]));
   const placed = new Map<string, { name: string; terms: string[] }>();
 
   for (const input of wanted) {
-    const term = byText.get(normalizeTerm(tidy(input.text)));
+    const terms = await listTerms();
+    const term = terms.find((item) => normalizeTerm(item.text) === normalizeTerm(tidy(input.text)));
     if (!term) continue;
-    const groupName = tidy(input.equivalence ?? "");
-    let group = byGroup.get(normalizeTerm(groupName));
-    if (!group) {
-      group = await createEquivalence(groupName, []);
-      byGroup.set(normalizeTerm(group.name), group);
+    const ids = new Set(term.categoryIds);
+    for (const raw of input.categories ?? []) {
+      const name = tidy(raw);
+      if (!name) continue;
+      const category = await findOrCreateCategory(name);
+      ids.add(category.id);
+      const entry = placed.get(normalizeTerm(category.name)) ?? { name: category.name, terms: [] };
+      if (!entry.terms.some((text) => normalizeTerm(text) === normalizeTerm(term.text))) {
+        entry.terms.push(term.text);
+      }
+      placed.set(normalizeTerm(category.name), entry);
     }
-    if (term.equivalenceId !== group.id) await setTermEquivalence(term.id, group.id);
-    term.equivalenceId = group.id;
+    const next = [...ids];
+    const same =
+      next.length === term.categoryIds.length && next.every((id) => term.categoryIds.includes(id));
+    if (!same) await setTermCategories(term.id, next);
+  }
+  result.categories = [...placed.values()];
+}
+
+/** Reuses a category of the same name, including a subcategory, before creating a top-level one. */
+async function findOrCreateCategory(name: string): Promise<schema.TermCategory> {
+  const categories = await listCategories();
+  const key = normalizeTerm(name);
+  const top = categories.find((category) => category.parentId === null && normalizeTerm(category.name) === key);
+  if (top) return top;
+  const existing = categories.find((category) => normalizeTerm(category.name) === key);
+  if (existing) return existing;
+  return createCategory(name);
+}
+
+/** Adds equivalent terms that are not already on the list. A wording already taken is reported. */
+async function ensureImportedEquivalents(inputs: TermInput[], result: ImportResult): Promise<void> {
+  const db = await getDb();
+  for (const input of inputs) {
+    for (const raw of input.equivalents ?? []) {
+      const text = tidy(raw);
+      if (!text) continue;
+      try {
+        const [term] = await db.insert(schema.terms).values(await prepare({ text })).returning();
+        result.added.push(term);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/already on the term list/.test(message)) continue;
+        const key = normalizeTerm(text);
+        if (result.skipped.some((item) => normalizeTerm(item.text) === key)) continue;
+        result.skipped.push({ text, reason: message });
+      }
+    }
+  }
+}
+
+/**
+ * Places a term and the equivalents named beside it into one group. A term can
+ * belong to only one group, so the term keeps its current group and the
+ * equivalents join it. A term with no group joins an equivalent that already
+ * has one. A named group is reused or created first.
+ */
+async function assignImportedGroups(inputs: TermInput[], result: ImportResult): Promise<void> {
+  const wanted = inputs.filter(
+    (input) => tidy(input.equivalence ?? "") || (input.equivalents ?? []).some((item) => tidy(item)),
+  );
+  if (wanted.length === 0) return;
+  const placed = new Map<string, { name: string; terms: string[] }>();
+  const emptied = new Set<number>();
+
+  for (const input of wanted) {
+    const terms = await listTerms();
+    const byText = new Map(terms.map((term) => [normalizeTerm(term.text), term]));
+    const primary = byText.get(normalizeTerm(tidy(input.text)));
+    if (!primary) continue;
+
+    const members = [primary];
+    for (const raw of input.equivalents ?? []) {
+      const peer = byText.get(normalizeTerm(tidy(raw)));
+      if (!peer || peer.id === primary.id || members.some((item) => item.id === peer.id)) continue;
+      members.push(peer);
+    }
+
+    const named = tidy(input.equivalence ?? "");
+    if (!named && members.length < 2) continue;
+
+    const groups = await listEquivalences();
+    const byName = new Map(groups.map((group) => [normalizeTerm(group.name), group]));
+    let group = named ? byName.get(normalizeTerm(named)) : undefined;
+    if (named && !group) group = await createEquivalence(named, []);
+    if (!group) {
+      const preferredId =
+        primary.equivalenceId ??
+        members.find((member) => member.equivalenceId !== null)?.equivalenceId ??
+        null;
+      group = preferredId === null ? undefined : groups.find((item) => item.id === preferredId);
+    }
+    if (!group) {
+      group = byName.get(normalizeTerm(primary.text)) ?? (await createEquivalence(primary.text, []));
+    }
+
+    for (const member of members) {
+      if (member.equivalenceId === group.id) continue;
+      if (member.equivalenceId !== null) emptied.add(member.equivalenceId);
+      await setTermEquivalence(member.id, group.id);
+      member.equivalenceId = group.id;
+    }
+
     const entry = placed.get(group.name) ?? { name: group.name, terms: [] };
-    entry.terms.push(term.text);
+    for (const member of members) {
+      if (!entry.terms.some((text) => normalizeTerm(text) === normalizeTerm(member.text))) {
+        entry.terms.push(member.text);
+      }
+    }
     placed.set(group.name, entry);
-    const skipped = result.skipped.find((item) => normalizeTerm(item.text) === normalizeTerm(term.text));
-    if (skipped) {
+
+    const skipped = result.skipped.find((item) => normalizeTerm(item.text) === normalizeTerm(primary.text));
+    if (skipped && !skipped.reason.includes(`equivalence group "${group.name}"`)) {
       skipped.reason = `${skipped.reason} It was placed in the equivalence group "${group.name}".`;
+    }
+  }
+
+  if (emptied.size > 0) {
+    const used = new Set(
+      (await listTerms()).map((term) => term.equivalenceId).filter((id): id is number => id !== null),
+    );
+    for (const id of emptied) {
+      if (!used.has(id)) await deleteEquivalence(id);
     }
   }
   result.groups = [...placed.values()];

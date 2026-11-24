@@ -366,5 +366,75 @@ describe("services", () => {
     expect(terms.find((term) => term.text === "sanction")?.equivalenceId).toBe(embargo?.equivalenceId);
     expect(terms.find((term) => term.text === "freedom")?.equivalenceId).toBe(embargo?.equivalenceId);
     expect(result.groups).toEqual([{ name: "Sanctions", terms: ["embargo", "sanction", "freedom"] }]);
+    expect(result.categories).toEqual([]);
+  });
+
+  it("imports categories and equivalent terms, including singular and plural forms", async () => {
+    const { parseTermList } = await import("../lib/text/csv");
+    const file = [
+      "terms,categories,equivalents",
+      "shoe(s) / slippers,footwear / apparel,boot(s)",
+      "sandal,footwear,shoe",
+    ].join("\n");
+    const result = await s.terms.importTerms([
+      ...parseTermList(file, "terms"),
+      {
+        text: "cannon",
+        variants: ["cannons"],
+        categories: ["ordnance"],
+        equivalents: ["cannons", "artillery"],
+      },
+      { text: "treaty", categories: ["foreign"] },
+      { text: "peace", categories: ["Diplomacy"] },
+    ]);
+
+    expect(result.added.map((term) => term.text)).toEqual([
+      "shoe",
+      "sandal",
+      "cannon",
+      "treaty",
+      "boot",
+      "boots",
+      "artillery",
+    ]);
+    expect(result.skipped.map((item) => item.text)).toEqual(["peace", "cannons"]);
+    expect(result.skipped.find((item) => item.text === "cannons")?.reason).toMatch(/already covered/);
+
+    const terms = await s.terms.listTerms();
+    const shoe = terms.find((term) => term.text === "shoe");
+    const sandal = terms.find((term) => term.text === "sandal");
+    const cannon = terms.find((term) => term.text === "cannon");
+    const treaty = terms.find((term) => term.text === "treaty");
+    const peace = terms.find((term) => term.text === "peace");
+    expect(shoe?.variants).toEqual(["shoes", "slippers"]);
+    expect(cannon?.variants).toEqual(["cannons"]);
+
+    const categories = await s.taxonomy.listCategories();
+    const names = (ids: number[] | undefined) =>
+      (ids ?? [])
+        .map((id) => categories.find((category) => category.id === id)?.name)
+        .filter((name): name is string => Boolean(name))
+        .sort();
+    expect(names(shoe?.categoryIds)).toEqual(["apparel", "footwear"]);
+    expect(names(sandal?.categoryIds)).toEqual(["footwear"]);
+    expect(names(treaty?.categoryIds)).toEqual(["Foreign"]);
+    expect(categories.filter((category) => category.name.toLowerCase() === "foreign")).toHaveLength(1);
+    expect(names(peace?.categoryIds)).toEqual(["Diplomacy", "Treaties"]);
+
+    const groupId = shoe?.equivalenceId;
+    expect(groupId).toBeTruthy();
+    expect(sandal?.equivalenceId).toBe(groupId);
+    expect(terms.find((term) => term.text === "boot")?.equivalenceId).toBe(groupId);
+    expect(terms.find((term) => term.text === "boots")?.equivalenceId).toBe(groupId);
+    expect(cannon?.equivalenceId).not.toBe(groupId);
+    expect(terms.find((term) => term.text === "artillery")?.equivalenceId).toBe(cannon?.equivalenceId);
+    expect(result.groups.map((group) => group.name).sort()).toEqual(["cannon", "shoe"]);
+    expect(result.categories.map((category) => category.name).sort()).toEqual([
+      "Diplomacy",
+      "Foreign",
+      "apparel",
+      "footwear",
+      "ordnance",
+    ]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { guessCommaMode, importUsesColumns, parseCsv, parseTermList, toCsv } from "./csv";
+import { countTermsToImport, guessCommaMode, importUsesColumns, parseCsv, parseTermList, toCsv } from "./csv";
 import { TERM_IMPORT_TEMPLATE } from "./explanations";
 import { countUncertain, nextUncertain } from "./transcription";
 
@@ -24,42 +24,52 @@ describe("toCsv and parseCsv", () => {
   });
 });
 
+const listed = (
+  text: string,
+  variants: string[] = [],
+  extra: { categories?: string[]; equivalents?: string[]; equivalence?: string } = {},
+) => ({
+  text,
+  variants,
+  categories: extra.categories ?? [],
+  equivalents: extra.equivalents ?? [],
+  ...(extra.equivalence ? { equivalence: extra.equivalence } : {}),
+});
+
 describe("parseTermList", () => {
   it("reads one term per line with further cells as variants", () => {
     expect(parseTermList("freedom, freedoms, liberty\nSoviet Union\n\npeace", "variants")).toEqual([
-      { text: "freedom", variants: ["freedoms", "liberty"] },
-      { text: "Soviet Union", variants: [] },
-      { text: "peace", variants: [] },
+      listed("freedom", ["freedoms", "liberty"]),
+      listed("Soviet Union"),
+      listed("peace"),
     ]);
   });
 
   it("treats every cell as its own term in terms mode", () => {
     expect(parseTermList("Cuba, missile, peace", "terms")).toEqual([
-      { text: "Cuba", variants: [] },
-      { text: "missile", variants: [] },
-      { text: "peace", variants: [] },
+      listed("Cuba"),
+      listed("missile"),
+      listed("peace"),
     ]);
   });
 
   it("skips a header row and splits a variants column on semicolons", () => {
     expect(parseTermList("term,variants\nmissile,missiles; rocket\n", "variants")).toEqual([
-      { text: "missile", variants: ["missiles", "rocket"] },
+      listed("missile", ["missiles", "rocket"]),
     ]);
   });
 
   it("merges repeats regardless of case and never lists a term as its own variant", () => {
     expect(parseTermList("Tax, taxes\ntax, TAX, levy\nlevy", "variants")).toEqual([
-      { text: "Tax", variants: ["taxes", "levy"] },
+      listed("Tax", ["taxes", "levy"]),
     ]);
   });
 
   it("collapses stray whitespace inside phrases", () => {
-    expect(parseTermList("  Soviet   Union  ", "variants")).toEqual([
-      { text: "Soviet Union", variants: [] },
-    ]);
+    expect(parseTermList("  Soviet   Union  ", "variants")).toEqual([listed("Soviet Union")]);
   });
 
-  it("reads variants and equivalence groups from the template columns", () => {
+  it("reads an older file that names variants and an equivalence group", () => {
     const file = [
       "note,explanation",
       "term,variants,equivalent_group",
@@ -70,17 +80,62 @@ describe("parseTermList", () => {
     ].join("\n");
     expect(importUsesColumns(file)).toBe(true);
     expect(parseTermList(file, "terms")).toEqual([
-      { text: "war", variants: ["wars"] },
-      { text: "conflict", variants: [], equivalence: "Conflict" },
-      { text: "peace", variants: [], equivalence: "Conflict" },
-      { text: "freedom", variants: ["freedoms", "liberties"] },
+      listed("war", ["wars"]),
+      listed("conflict", [], { equivalence: "Conflict" }),
+      listed("peace", [], { equivalence: "Conflict" }),
+      listed("freedom", ["freedoms", "liberties"]),
     ]);
+  });
+
+  it("splits terms, categories, and equivalents on slashes and optional plural endings", () => {
+    const file = [
+      "terms,categories,equivalents",
+      "shoe(s) / slippers,footwear / apparel,boot(s)",
+      "tax(es),economy,",
+      "countr(y/ies),place(s),nation",
+      "child(ren) shoe(s),goods,",
+    ].join("\n");
+    expect(importUsesColumns(file)).toBe(true);
+    expect(parseTermList(file, "terms")).toEqual([
+      listed("shoe", ["shoes", "slippers"], {
+        categories: ["footwear", "apparel"],
+        equivalents: ["boot", "boots"],
+      }),
+      listed("tax", ["taxes"], { categories: ["economy"] }),
+      listed("country", ["countries"], {
+        categories: ["place", "places"],
+        equivalents: ["nation"],
+      }),
+      listed("child shoe", ["child shoes", "children shoe", "children shoes"], {
+        categories: ["goods"],
+      }),
+    ]);
+    expect(countTermsToImport(parseTermList(file, "terms"))).toBe(7);
+  });
+
+  it("ignores spaces around the slash and keeps a slash inside parentheses", () => {
+    expect(parseTermList("terms\nshoe(s)  /  slippers", "variants")).toEqual([
+      listed("shoe", ["shoes", "slippers"]),
+    ]);
+  });
+
+  it("reads slash-separated variants inside one pasted entry", () => {
+    expect(parseTermList("shoe(s) / slippers, boot", "terms")).toEqual([
+      listed("shoe", ["shoes", "slippers"]),
+      listed("boot"),
+    ]);
+    expect(parseTermList("shoe(s) / slippers, boot", "variants")).toEqual([
+      listed("shoe", ["shoes", "slippers", "boot"]),
+    ]);
+  });
+
+  it("reads the downloadable template", () => {
     expect(importUsesColumns(TERM_IMPORT_TEMPLATE)).toBe(true);
-    expect(parseTermList(TERM_IMPORT_TEMPLATE, "terms").map((term) => term.text)).toEqual([
-      "war",
-      "conflict",
-      "peace",
-      "freedom",
+    expect(parseTermList(TERM_IMPORT_TEMPLATE, "terms")).toEqual([
+      listed("war", ["wars"], { categories: ["foreign policy"], equivalents: ["conflict", "conflicts"] }),
+      listed("peace", [], { categories: ["foreign policy", "diplomacy"], equivalents: ["armistice"] }),
+      listed("tax", ["taxes", "tariff", "tariffs"], { categories: ["economy"], equivalents: ["duty"] }),
+      listed("freedom", [], { categories: ["rights"] }),
     ]);
   });
 });
