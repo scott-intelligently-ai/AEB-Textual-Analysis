@@ -12,10 +12,11 @@ import {
   XIcon,
 } from "@/components/icons";
 import { MarkedText } from "@/components/MarkedText";
-import { Badge, Button, Card, EmptyState, IconButton, Notice, cx } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, IconButton, Notice, TextInput, cx } from "@/components/ui";
 import { send } from "@/lib/client/api";
 import { isTyping, modalOpen } from "@/lib/client/dom";
 import type { AiToneResult, Annotation, DocumentDetail, Term, Tone } from "@/lib/client/types";
+import { documentTermList, type TermSort } from "@/lib/text/documentTerms";
 import { findOccurrences, spanKey, type Occurrence } from "@/lib/text/match";
 
 const POPOVER_WIDTH = 304;
@@ -38,8 +39,11 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
   const { notify, notifyError, confirm } = useFeedback();
   const container = useRef<HTMLDivElement>(null);
   const popover = useRef<HTMLDivElement>(null);
+  const termList = useRef<HTMLUListElement>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [termFilter, setTermFilter] = useState<number | null>(null);
+  const [termQuery, setTermQuery] = useState("");
+  const [termSort, setTermSort] = useState<TermSort>("count");
   const [asking, setAsking] = useState<string | null>(null);
   const [bulk, setBulk] = useState<"suggest" | "confirm" | "discard" | null>(null);
   const [lastRun, setLastRun] = useState<AiToneResult | null>(null);
@@ -112,6 +116,16 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
           : navigable.length - 1
         : (index + delta + navigable.length) % navigable.length;
     select(spanKey(navigable[next]), true);
+  }
+
+  /** Focus one term and move to an appearance of it in the document. */
+  function focusTerm(termId: number) {
+    const matches = occurrences.filter((occurrence) => occurrence.termId === termId);
+    if (matches.length === 0) return;
+    setTermFilter(termId);
+    const index = active ? matches.findIndex((occurrence) => spanKey(occurrence) === active.key) : -1;
+    const next = matches[index === -1 ? 0 : (index + 1) % matches.length];
+    select(spanKey(next), true);
   }
 
   function nextUntagged() {
@@ -278,6 +292,14 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
     if (activeKey) popover.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [activeKey]);
 
+  // Keep the chosen term in view inside the scrolling list.
+  useEffect(() => {
+    if (termFilter === null) return;
+    termList.current
+      ?.querySelector<HTMLElement>(`[data-term-id="${termFilter}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [termFilter]);
+
   if (terms.length === 0) {
     return (
       <EmptyState
@@ -301,9 +323,14 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
   }
 
   const activeIndex = active ? navigable.findIndex((o) => spanKey(o) === active.key) : -1;
+  const listedTerms = documentTermList(terms, termCounts, termQuery, termSort);
+  const appearanceLabel =
+    activeOccurrence?.termId === termFilter && activeIndex >= 0
+      ? `${activeIndex + 1} of ${navigable.length}`
+      : `${navigable.length} appearance${navigable.length === 1 ? "" : "s"}`;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_17rem]">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <div>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <Button variant="primary" busy={bulk === "suggest"} onClick={suggestAll}>
@@ -548,7 +575,7 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
         </Card>
       </div>
 
-      <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
+      <aside className="space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain">
         <Card className="p-4">
           <h2 className="text-sm font-semibold text-zinc-900">Tones</h2>
           <ul className="mt-2 space-y-1.5">
@@ -584,20 +611,86 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
 
         <Card className="p-4">
           <h2 className="text-sm font-semibold text-zinc-900">Terms in this document</h2>
-          <p className="mt-1 text-xs text-zinc-500">Choose a term to focus on it.</p>
-          <ul className="mt-2 space-y-0.5">
-            {terms
-              .filter((term) => termCounts.has(term.id))
-              .sort((a, b) => (termCounts.get(b.id) ?? 0) - (termCounts.get(a.id) ?? 0))
-              .map((term) => (
+          <p className="mt-1 text-xs text-zinc-500">
+            Choose a term to jump to it. Choose it again to move to the next appearance.
+          </p>
+          <label className="mt-3 block">
+            <span className="sr-only">Search terms</span>
+            <TextInput
+              type="search"
+              value={termQuery}
+              onChange={(event) => setTermQuery(event.target.value)}
+              placeholder="Search terms"
+              aria-label="Search terms"
+            />
+          </label>
+          <div className="mt-2 grid grid-cols-2 gap-1 rounded-md bg-zinc-100 p-0.5 text-xs font-medium">
+            {(
+              [
+                ["alpha", "A–Z"],
+                ["count", "Count"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={termSort === value}
+                onClick={() => setTermSort(value)}
+                className={cx(
+                  "rounded px-2 py-1",
+                  termSort === value
+                    ? "bg-white text-zinc-900 shadow-sm"
+                    : "text-zinc-600 hover:text-zinc-900",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {termFilter !== null ? (
+            <div className="mt-2 flex flex-wrap items-center gap-1 text-xs text-zinc-600">
+              <IconButton
+                label="Previous appearance"
+                disabled={navigable.length < 2}
+                onClick={() => step(-1)}
+              >
+                <ChevronLeftIcon />
+              </IconButton>
+              <span className="min-w-0 flex-1 text-center tabular-nums">{appearanceLabel}</span>
+              <IconButton
+                label="Next appearance"
+                disabled={navigable.length < 2}
+                onClick={() => step(1)}
+              >
+                <ChevronRightIcon />
+              </IconButton>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setTermFilter(null);
+                  select(null);
+                }}
+              >
+                All terms
+              </Button>
+            </div>
+          ) : null}
+          <ul
+            ref={termList}
+            aria-label="Terms in this document"
+            className="mt-2 max-h-[min(32rem,max(12rem,calc(100vh-42rem)))] space-y-0.5 overflow-y-auto overscroll-contain pr-1"
+          >
+            {listedTerms.length === 0 ? (
+              <li className="px-2 py-3 text-xs text-zinc-500">No terms match that search.</li>
+            ) : (
+              listedTerms.map((term) => (
                 <li key={term.id}>
                   <button
                     type="button"
+                    data-term-id={term.id}
                     aria-pressed={termFilter === term.id}
-                    onClick={() => {
-                      setTermFilter(termFilter === term.id ? null : term.id);
-                      select(null);
-                    }}
+                    onClick={() => focusTerm(term.id)}
                     className={cx(
                       "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-sm",
                       termFilter === term.id
@@ -609,13 +702,9 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
                     <span className="tabular-nums">{termCounts.get(term.id)}</span>
                   </button>
                 </li>
-              ))}
+              ))
+            )}
           </ul>
-          {termFilter !== null ? (
-            <Button size="sm" variant="ghost" className="mt-2" onClick={() => setTermFilter(null)}>
-              Show all terms
-            </Button>
-          ) : null}
         </Card>
 
         <Card className="p-4 text-xs leading-5 text-zinc-600">
@@ -624,7 +713,7 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
             <dt className="font-mono text-zinc-500">1–{Math.min(9, tones.length)}</dt>
             <dd>Set the tone and move on</dd>
             <dt className="font-mono text-zinc-500">← →</dt>
-            <dd>Previous or next term</dd>
+            <dd>Previous or next appearance</dd>
             <dt className="font-mono text-zinc-500">N</dt>
             <dd>Next term still to review</dd>
             <dt className="font-mono text-zinc-500">Enter</dt>
