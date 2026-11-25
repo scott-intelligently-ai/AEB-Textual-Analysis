@@ -5,10 +5,40 @@ import { postgresOptions } from "./connection";
 import * as schema from "./schema";
 
 export const DEFAULT_TONES = [
-  { name: "Positive", color: "#16a34a", score: 1, isDefault: false },
-  { name: "Neutral", color: "#52525b", score: 0, isDefault: true },
-  { name: "Negative", color: "#b91c1c", score: -1, isDefault: false },
+  {
+    name: "Positive",
+    color: "#16a34a",
+    score: 1,
+    isDefault: false,
+    definition:
+      'The author uses this appearance to present what the term refers to as good, worthy, or something to be sought or aspired to. Praise, credit, defense, hope, and a claim that it deserves something belong here. In "Africa deserves to decide its own future," Africa is used this way.',
+  },
+  {
+    name: "Neutral",
+    color: "#52525b",
+    score: 0,
+    isDefault: true,
+    definition:
+      'The author uses this appearance to mention what the term refers to without presenting it as good or bad. A fact, a definition, a name, or a description with no praise and no blame belongs here. In "Africa is one of Earth\'s continents," Africa is used this way.',
+  },
+  {
+    name: "Negative",
+    color: "#b91c1c",
+    score: -1,
+    isDefault: false,
+    definition:
+      'The author uses this appearance to present what the term refers to as bad, at fault, or something to be avoided or rejected. Blame, criticism, failure, threat, and a claim that it has fallen short belong here. In "Africa hasn\'t carried its weight in negotiations," Africa is used this way.',
+  },
 ];
+
+const defaultDefinition = (name: string): string | null =>
+  DEFAULT_TONES.find((tone) => tone.name === name)?.definition ?? null;
+
+/** Keeps a definition someone wrote. A blank default tone receives its starting text. */
+function definitionToKeep(tone: schema.Tone): string | null {
+  const written = tone.definition?.trim();
+  return written || defaultDefinition(tone.name);
+}
 
 /** The five tones seeded before the default set was Positive, Neutral, and Negative. */
 const LEGACY_DEFAULT_TONES = [
@@ -92,15 +122,27 @@ async function replaceLegacyDefaultTones(db: Db, existing: schema.Tone[]): Promi
     await tx.update(schema.tones).set({ isDefault: false });
     await tx
       .update(schema.tones)
-      .set({ sortOrder: 0, isDefault: keptDefault.id === positive.id })
+      .set({
+        sortOrder: 0,
+        isDefault: keptDefault.id === positive.id,
+        definition: definitionToKeep(positive),
+      })
       .where(eq(schema.tones.id, positive.id));
     await tx
       .update(schema.tones)
-      .set({ sortOrder: 1, isDefault: keptDefault.id === neutral.id })
+      .set({
+        sortOrder: 1,
+        isDefault: keptDefault.id === neutral.id,
+        definition: definitionToKeep(neutral),
+      })
       .where(eq(schema.tones.id, neutral.id));
     await tx
       .update(schema.tones)
-      .set({ sortOrder: 2, isDefault: keptDefault.id === negative.id })
+      .set({
+        sortOrder: 2,
+        isDefault: keptDefault.id === negative.id,
+        definition: definitionToKeep(negative),
+      })
       .where(eq(schema.tones.id, negative.id));
   });
 }

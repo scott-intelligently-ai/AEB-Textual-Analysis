@@ -48,7 +48,7 @@ export function TonesPage({
     <>
       <PageHeader
         title={title}
-        description="The tones you can give each use of a term. The colour is used for the term's text in documents. A term that has not been given a tone is shown in the default tone. The score is a number exported with each occurrence, so tone can be averaged in a spreadsheet. A definition says what the tone means; the starting tones leave it blank until you write one."
+        description="The tones you can give each use of a term. The colour is used for the term's text in documents. A term that has not been given a tone is shown in the default tone. The score is a number exported with each occurrence, so tone can be averaged in a spreadsheet. A definition says what the tone means. Positive, neutral, and negative start with one, and you can change it."
       />
 
       {tones.error ? (

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { asc, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -66,12 +67,15 @@ async function tagged(documentId: number): Promise<string[]> {
 describe("services", () => {
   it("seeds positive, neutral, and negative, with Neutral as the default", async () => {
     const tones = await s.tones.listTones();
-    expect(tones.map((tone) => [tone.name, tone.score, tone.definition])).toEqual([
-      ["Positive", 1, null],
-      ["Neutral", 0, null],
-      ["Negative", -1, null],
-    ]);
+    expect(tones.map((tone) => [tone.name, tone.score, tone.definition])).toEqual(
+      s.db.DEFAULT_TONES.map((tone) => [tone.name, tone.score, tone.definition]),
+    );
     expect(tones.filter((tone) => tone.isDefault).map((tone) => tone.name)).toEqual(["Neutral"]);
+    const migration = readFileSync("drizzle/0003_default_tone_definitions.sql", "utf8");
+    for (const tone of tones) {
+      expect(tone.definition!.length).toBeLessThanOrEqual(s.tones.TONE_DEFINITION_MAX);
+      expect(migration).toContain(tone.definition);
+    }
   });
 
   it("replaces an untouched set of the old five tones and keeps their tags", async () => {
@@ -85,6 +89,10 @@ describe("services", () => {
       { name: "Positive", color: "#16a34a", score: 1, isDefault: false, sortOrder: 3 },
       { name: "Very positive", color: "#047857", score: 2, isDefault: false, sortOrder: 4 },
     ]);
+    await db
+      .update(schema.tones)
+      .set({ definition: "Kept." })
+      .where(eq(schema.tones.name, "Neutral"));
     const before = await s.tones.listTones();
     const veryPositive = before.find((tone) => tone.name === "Very positive")!;
     const veryNegative = before.find((tone) => tone.name === "Very negative")!;
@@ -119,6 +127,13 @@ describe("services", () => {
     const tones = await s.tones.listTones();
     expect(tones.map((tone) => tone.name)).toEqual(["Positive", "Neutral", "Negative"]);
     expect(tones.find((tone) => tone.isDefault)?.name).toBe("Neutral");
+    expect(tones.find((tone) => tone.name === "Neutral")?.definition).toBe("Kept.");
+    expect(tones.find((tone) => tone.name === "Positive")?.definition).toBe(
+      s.db.DEFAULT_TONES.find((tone) => tone.name === "Positive")?.definition,
+    );
+    expect(tones.find((tone) => tone.name === "Negative")?.definition).toBe(
+      s.db.DEFAULT_TONES.find((tone) => tone.name === "Negative")?.definition,
+    );
     const tags = await db
       .select({ toneId: schema.annotations.toneId })
       .from(schema.annotations)
@@ -142,7 +157,8 @@ describe("services", () => {
       { name: "Mixed", color: "#7c3aed", score: 0, isDefault: false, sortOrder: 5 },
     ]);
     await seed(db);
-    expect((await s.tones.listTones()).map((tone) => tone.name)).toEqual([
+    const leftAlone = await s.tones.listTones();
+    expect(leftAlone.map((tone) => tone.name)).toEqual([
       "Very negative",
       "Negative",
       "Neutral",
@@ -150,6 +166,7 @@ describe("services", () => {
       "Very positive",
       "Mixed",
     ]);
+    expect(leftAlone.find((tone) => tone.name === "Positive")?.definition ?? null).toBeNull();
     await db.delete(schema.tones);
     await seed(db);
     expect((await s.tones.listTones()).map((tone) => tone.name)).toEqual([
@@ -167,6 +184,8 @@ describe("services", () => {
     expect(saved.definition).toBe("Approval of what the term refers to.");
     const cleared = await s.tones.updateTone(id, { definition: "   " });
     expect(cleared.definition).toBeNull();
+    await s.db.seed(await s.db.getDb());
+    expect((await s.tones.listTones()).find((tone) => tone.id === id)?.definition).toBeNull();
   });
 
   it("rejects a term whose wording is already taken", async () => {
