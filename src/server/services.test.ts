@@ -174,6 +174,26 @@ describe("services", () => {
     await s.documents.deleteDocument(id);
   });
 
+  it("exports one count per tone, plus a total, for each term in each document", async () => {
+    const first = await addDocument("Tone counts", "Peace, peace, and wars.");
+    const second = await addDocument("Tone counts again", "No peace here.");
+    await tag(first, "Peace", 0, "Positive");
+    await tag(first, "wars", 0, "Negative");
+    const tones = (await s.tones.listTones()).map((tone) => tone.name);
+    const lines = (await s.frequency.toneFrequencyCsv([first, second])).trim().split("\r\n");
+    expect(lines[0].startsWith("how_to_read_this_file,")).toBe(true);
+    expect(lines[1]).toBe(["document", "term", ...tones, "total"].join(","));
+    const row = (document: string, term: string) =>
+      lines.find((line) => line.startsWith(`${document},${term},`));
+    const numbers = (line: string | undefined) => line?.split(",").slice(2);
+    expect(numbers(row("Tone counts", "peace"))).toEqual(["0", "0", "1", "1", "0", "2"]);
+    expect(numbers(row("Tone counts", "war"))).toEqual(["0", "1", "0", "0", "0", "1"]);
+    expect(numbers(row("Tone counts again", "peace"))).toEqual(["0", "0", "1", "0", "0", "1"]);
+    expect(numbers(row("Tone counts again", "war"))).toEqual(["0", "0", "0", "0", "0", "0"]);
+    await s.documents.deleteDocument(first);
+    await s.documents.deleteDocument(second);
+  });
+
   it("drops tags that stop matching when the term list changes", async () => {
     const id = await addDocument("Budget", "A tax cut is not a tax rise.");
     await tag(id, "tax", 0, "Positive");

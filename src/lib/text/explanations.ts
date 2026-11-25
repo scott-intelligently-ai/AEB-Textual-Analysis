@@ -12,6 +12,8 @@ export const FREQUENCY_DOWNLOAD_NOTE = `${VARIANT_MEANING} ${EQUIVALENCE_MEANING
 
 export const OCCURRENCE_DOWNLOAD_NOTE = `${VARIANT_MEANING} The term column names that term, and matched_text is the spelling found in the document. ${EQUIVALENCE_MEANING} This file does not combine equivalent terms.`;
 
+export const TONE_FREQUENCY_DOWNLOAD_NOTE = `${VARIANT_MEANING} ${EQUIVALENCE_MEANING} Each row is one term in one document. There is one count for each tone, then a total. An occurrence with no tone of its own is counted under the default tone. This file does not combine equivalent terms.`;
+
 export function distributionDownloadNote(group: DistributionGroup): string {
   const base = `${VARIANT_MEANING} Every occurrence counts, and an occurrence with no tone of its own uses the default tone.`;
   switch (group) {

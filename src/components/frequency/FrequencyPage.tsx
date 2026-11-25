@@ -73,6 +73,12 @@ export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
         >
           <DownloadIcon /> Export every occurrence with its tone
         </a>
+        <a
+          href={`/api/export/tone-frequency${query}`}
+          className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 shadow-sm ring-1 ring-zinc-300 ring-inset hover:bg-zinc-50"
+        >
+          <DownloadIcon /> Export counts by tone (CSV)
+        </a>
       </>
     ) : null;
 
@@ -88,8 +94,9 @@ export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
                 row is one term. {VARIANT_MEANING}
               </p>
               <p>
-                {EQUIVALENCE_MEANING} This table and both downloads keep equivalent terms in their
-                own rows. The CSV files begin with the same explanation.
+                {EQUIVALENCE_MEANING} This table and the downloads keep equivalent terms in their
+                own rows. The counts-by-tone file has one count for each tone, plus a total, for
+                every term in every chosen document. The CSV files begin with the same explanation.
               </p>
             </div>
           </div>
@@ -107,8 +114,9 @@ export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
                 is one term. {VARIANT_MEANING}
               </span>
               <span className="mt-2 block">
-                {EQUIVALENCE_MEANING} This table and both downloads keep equivalent terms in their
-                own rows. The CSV files begin with the same explanation.
+                {EQUIVALENCE_MEANING} This table and the downloads keep equivalent terms in their
+                own rows. The counts-by-tone file has one count for each tone, plus a total, for
+                every term in every chosen document. The CSV files begin with the same explanation.
               </span>
             </>
           }
