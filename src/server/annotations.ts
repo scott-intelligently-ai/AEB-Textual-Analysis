@@ -116,9 +116,10 @@ export interface AiToneResult {
 }
 
 /**
- * Asks the AI for tones. With a span, only that occurrence is judged (and an
+ * Asks Jev for tones. With a span, only that occurrence is judged (and an
  * existing tag on it is replaced, since the user asked). Without one, every
- * occurrence the user has not tagged is judged.
+ * occurrence the user has not tagged is judged. An occurrence Jev is not
+ * confident about is left as it is.
  */
 export async function suggestDocumentTones(
   documentId: number,
@@ -146,7 +147,6 @@ export async function suggestDocumentTones(
   if (targets.length === 0) return { suggested: 0, skipped, missed: 0 };
 
   const { suggestions, missed } = await suggestTones({
-    provider: settings.analysisProvider,
     text: document.text,
     targets,
     tones,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { parseBody, route } from "@/server/http";
-import { createTone, listTonesWithUsage, reorderTones } from "@/server/tones";
+import { createTone, listTonesWithUsage, reorderTones, TONE_DEFINITION_MAX } from "@/server/tones";
 
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Choose a colour.");
 
@@ -8,6 +8,10 @@ const create = z.object({
   name: z.string(),
   color,
   score: z.number().finite().optional(),
+  definition: z
+    .string()
+    .max(TONE_DEFINITION_MAX, `A tone definition can be at most ${TONE_DEFINITION_MAX} characters.`)
+    .optional(),
 });
 
 const reorder = z.object({ ids: z.array(z.number().int().positive()) });

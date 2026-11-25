@@ -6,8 +6,8 @@ A web application for analysing the text of scanned speeches:
 - Combine documents (a speech spread over several scans) or split one (a scan holding several speeches).
 - Keep a list of terms, with optional variants counted under the same term.
 - Count how often each term appears in all documents or a selection, and export the counts.
-- Read a document with its terms highlighted and give each occurrence a tone. Tones are yours to define; the defaults are very negative, negative, neutral, positive, and very positive.
-- Ask the AI to suggest the tone of one occurrence or of every occurrence in a document. Suggestions are marked until you confirm them.
+- Read a document with its terms highlighted and give each occurrence a tone. Tones are yours to define; the defaults are positive, neutral, and negative, and each starts with a definition of what it means.
+- Ask Jev to suggest the tone of one occurrence, or of every occurrence you have not tagged. Jev chooses among the tones you defined and uses a tone's definition when you have written one. A suggestion is kept only when the probability of that tone is at least 0.7; otherwise the occurrence is left as it is. Suggestions are marked until you confirm them. Jev does not write an explanation.
 - Describe what the analysis is for and have the AI look for terms you may have overlooked, then include or exclude each one.
 
 ## Running it
@@ -16,7 +16,7 @@ Developed and tested with Node.js 22. The library lives in Supabase (Postgres an
 
 ```bash
 npm install
-cp .env.example .env.local   # fill in Supabase, the database URLs, and at least one AI key
+cp .env.example .env.local   # fill in Supabase, the database URLs, a provider key, and the Jev key
 npm run db:migrate           # uses DIRECT_URL
 npm run dev                  # http://localhost:3000
 npm run worker               # in a second terminal; converts scans
@@ -43,9 +43,11 @@ Scans upload from the browser straight to Supabase, so a large PDF does not have
 | `DATABASE_URL` | Pooler connection used by the website and the worker. |
 | `DIRECT_URL` | Direct connection used by `npm run db:migrate`. |
 | `ALLOWED_EMAILS` | Comma-separated emails that may sign in. Anyone else is refused. |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | At least one is required. |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | At least one is required for scan conversion and term suggestions. |
+| `TYPESAFE_API_KEY` | Jev. Required for tone suggestions. |
 | `ANTHROPIC_OCR_MODEL`, `OPENAI_OCR_MODEL` | Model that converts page images to text. |
-| `ANTHROPIC_ANALYSIS_MODEL`, `OPENAI_ANALYSIS_MODEL` | Model that suggests tones and terms. |
+| `ANTHROPIC_ANALYSIS_MODEL`, `OPENAI_ANALYSIS_MODEL` | Model that suggests terms. |
+| `TYPESAFE_DEFAULT_MODEL` | Optional. Overrides the pinned Jev version (`jev-1.14.0`). |
 
 Which provider does each job is chosen on the Settings page. The defaults are in `.env.example`.
 

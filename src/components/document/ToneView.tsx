@@ -178,7 +178,7 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
         end: occurrence.end,
       });
       if (result.suggested === 0) {
-        notifyError("The AI did not give a usable answer for this occurrence. Try again.");
+        notifyError("Jev was not confident enough to choose a tone for this occurrence. Try again.");
       }
     } catch (error) {
       notifyError(error);
@@ -335,10 +335,10 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <Button variant="primary" busy={bulk === "suggest"} onClick={suggestAll}>
             {bulk === "suggest" ? (
-              "Asking the AI…"
+              "Asking Jev…"
             ) : (
               <>
-                <SparklesIcon /> Suggest tones with AI
+                <SparklesIcon /> Suggest tones with Jev
               </>
             )}
           </Button>
@@ -372,13 +372,13 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
             <Notice tone={lastRun.missed > 0 ? "amber" : "indigo"}>
               <div className="flex items-start gap-3">
                 <p className="flex-1">
-                  The AI suggested a tone for {lastRun.suggested} occurrence
+                  Jev suggested a tone for {lastRun.suggested} occurrence
                   {lastRun.suggested === 1 ? "" : "s"}.
                   {lastRun.skipped > 0
                     ? ` ${lastRun.skipped} that you had already set ${lastRun.skipped === 1 ? "was" : "were"} left alone.`
                     : ""}
                   {lastRun.missed > 0
-                    ? ` ${lastRun.missed} got no usable answer and ${lastRun.missed === 1 ? "is" : "are"} unchanged; run it again to retry.`
+                    ? ` ${lastRun.missed} ${lastRun.missed === 1 ? "was" : "were"} left unchanged because Jev was not confident enough; run it again to retry.`
                     : ""}
                   {lastRun.suggested > 0
                     ? " Suggestions have a dashed outline. Check them, then confirm them all or change individual ones."
@@ -427,7 +427,7 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
                     style={{ "--tone": tone.color } as React.CSSProperties}
                     title={`${term?.text ?? content}: ${tone.name}${
                       state === "ai"
-                        ? " (suggested by AI, not confirmed)"
+                        ? " (suggested by Jev, not confirmed)"
                         : state === "default"
                           ? " (default, not set)"
                           : ""
@@ -486,8 +486,8 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
                     </p>
                   ) : activeAnnotation.source === "ai" ? (
                     <div className="rounded-md bg-indigo-50 px-2 py-1.5 text-xs leading-5 text-indigo-900">
-                      <span className="font-semibold">AI suggestion, not confirmed.</span>{" "}
-                      {activeAnnotation.reason}
+                      <span className="font-semibold">Jev suggestion, not confirmed.</span>
+                      {activeAnnotation.reason ? ` ${activeAnnotation.reason}` : null}
                     </div>
                   ) : (
                     <p className="text-xs text-zinc-500">Set by you.</p>
@@ -546,7 +546,7 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
                       "Asking…"
                     ) : (
                       <>
-                        <SparklesIcon /> Ask AI
+                        <SparklesIcon /> Ask Jev
                       </>
                     )}
                   </Button>
@@ -719,7 +719,7 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
             <dt className="font-mono text-zinc-500">Enter</dt>
             <dd>Confirm an AI suggestion</dd>
             <dt className="font-mono text-zinc-500">A</dt>
-            <dd>Ask the AI about this term</dd>
+            <dd>Ask Jev about this term</dd>
             <dt className="font-mono text-zinc-500">0</dt>
             <dd>Clear back to the default</dd>
             <dt className="font-mono text-zinc-500">Esc</dt>

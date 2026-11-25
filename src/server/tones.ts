@@ -7,11 +7,15 @@ export interface ToneWithUsage extends schema.Tone {
   usage: number;
 }
 
+/** A definition is a sentence or two about what the tone means. */
+export const TONE_DEFINITION_MAX = 500;
+
 export interface ToneInput {
   name?: string;
   color?: string;
   score?: number;
   isDefault?: boolean;
+  definition?: string | null;
 }
 
 export async function listTones(): Promise<schema.Tone[]> {
@@ -42,6 +46,14 @@ async function checkName(name: string, excludeId?: number): Promise<string> {
   return tidy;
 }
 
+function tidyDefinition(value: string): string | null {
+  const tidy = value.trim();
+  if (tidy.length > TONE_DEFINITION_MAX) {
+    throw badRequest(`A tone definition can be at most ${TONE_DEFINITION_MAX} characters.`);
+  }
+  return tidy || null;
+}
+
 export async function createTone(
   input: Required<Pick<ToneInput, "name" | "color">> & ToneInput,
 ): Promise<schema.Tone> {
@@ -53,6 +65,7 @@ export async function createTone(
       name: await checkName(input.name),
       color: input.color,
       score: input.score ?? 0,
+      definition: input.definition == null ? null : tidyDefinition(input.definition),
       sortOrder: tones.length === 0 ? 0 : Math.max(...tones.map((item) => item.sortOrder)) + 1,
       isDefault: tones.length === 0,
     })
@@ -77,6 +90,8 @@ export async function updateTone(id: number, input: ToneInput): Promise<schema.T
         color: input.color ?? existing.color,
         score: input.score ?? existing.score,
         isDefault: input.isDefault ?? existing.isDefault,
+        definition:
+          input.definition === undefined ? existing.definition : tidyDefinition(input.definition ?? ""),
       })
       .where(eq(schema.tones.id, id))
       .returning();
