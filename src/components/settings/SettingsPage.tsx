@@ -61,7 +61,7 @@ function Settings({ settings }: { settings: SettingsResponse }) {
     <>
       <PageHeader
         title="Settings"
-        description="Choose which AI provider does each job. Both read the same instructions, so you can switch at any time; text already converted and tones already suggested are not changed."
+        description="Choose which provider converts scans and which one looks for overlooked terms. Jev judges tone, and switching providers does not change text already converted or tones already suggested."
       />
 
       {missing.length > 0 ? (
@@ -87,8 +87,8 @@ function Settings({ settings }: { settings: SettingsResponse }) {
           onChange={(provider) => update({ ocrProvider: provider })}
         />
         <ProviderChoice
-          title="Suggesting tones and terms"
-          description="Judges the tone of each use of a term, and looks for terms you may have overlooked."
+          title="Suggesting terms"
+          description="Looks through the documents for terms you may have overlooked. Tone is judged by Jev, not by this provider."
           task="analysis"
           value={settings.analysisProvider}
           providers={settings.providers}
@@ -99,8 +99,8 @@ function Settings({ settings }: { settings: SettingsResponse }) {
           <label className="block">
             <span className="text-sm font-semibold text-zinc-900">What is this analysis for?</span>
             <span className="mt-1 mb-2 block text-sm leading-6 text-zinc-600">
-              The AI is given this description when it suggests tones and looks for overlooked
-              terms.
+              Jev is given this description when it judges tone, and the provider above is given it
+              when it looks for overlooked terms.
             </span>
             <TextArea rows={4} value={purpose} onChange={(event) => setPurpose(event.target.value)} />
           </label>

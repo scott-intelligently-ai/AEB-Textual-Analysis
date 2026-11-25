@@ -211,8 +211,8 @@ function Discover({
               </span>
               <span className="mt-1 mb-2 block text-xs leading-5 text-zinc-500">
                 Say what you want to learn from these speeches. The AI uses this, together with the
-                terms you already have, to judge which terms matter. It is also used when the AI
-                suggests tones.
+                terms you already have, to judge which terms matter. Jev uses it when it suggests
+                tones.
               </span>
               <TextArea
                 rows={5}

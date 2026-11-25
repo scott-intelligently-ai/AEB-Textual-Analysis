@@ -1,5 +1,7 @@
+import { APIConnectionError, APIError } from "@typesafe-ai/sdk";
 import { connection, type NextRequest } from "next/server";
 import { z } from "zod";
+import { JevConfigError } from "../lib/ai/jev";
 import { AiConfigError } from "../lib/ai/models";
 import { AuthError } from "../lib/auth/errors";
 import { requireUser } from "../lib/supabase/server";
@@ -55,7 +57,12 @@ function describe(error: unknown): { status: number; message: string } {
   if (error instanceof HttpError || error instanceof AuthError) {
     return { status: error.status, message: error.message };
   }
-  if (error instanceof AiConfigError) return { status: 400, message: error.message };
+  if (error instanceof AiConfigError || error instanceof JevConfigError) {
+    return { status: 400, message: error.message };
+  }
+  if (error instanceof APIError || error instanceof APIConnectionError) {
+    return { status: 502, message: `Jev returned an error: ${error.message}` };
+  }
   if (error instanceof RangeError) return { status: 400, message: error.message };
   const message = error instanceof Error ? error.message : String(error);
   // Errors raised by the AI SDK carry the provider's explanation.

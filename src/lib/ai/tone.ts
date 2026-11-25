@@ -1,7 +1,7 @@
-import { generateText, Output } from "ai";
-import { z } from "zod";
+import { choice } from "@typesafe-ai/sdk";
 import type { Span } from "../text/documents";
-import { languageModel, mapLimit, type Provider } from "./models";
+import { askJev, type JevRequest } from "./jev";
+import { mapLimit } from "./models";
 
 export interface ToneOption {
   id: number;
@@ -100,35 +100,49 @@ export function markPassage(text: string, request: ToneRequest): string {
   return out + text.slice(cursor, request.passageEnd);
 }
 
-const toneKey = (tone: ToneOption) => `tone_${tone.id}`;
+/**
+ * A Choice always names a winner. Keep the tone only when Jev's probability
+ * for that winner is at least this. Below it, the occurrence stays unset.
+ */
+export const TONE_SETTLED_AT = 0.7;
 
-function instructions(tones: ToneOption[]): string {
-  const fallback = tones.find((tone) => tone.isDefault) ?? tones[0];
-  const list = tones
-    .map((tone) => {
-      const meaning = tone.definition?.trim();
-      const line = `- ${toneKey(tone)}: ${tone.name} (score ${tone.score})`;
-      return meaning ? `${line}. ${meaning}` : line;
-    })
-    .join("\n");
-  return `You help a researcher analyse the text of speeches. Certain terms in a passage are marked like <term n="3">taxes</term>.
+/** Labels are the tone names. A blank definition is left undescribed. */
+export function toneCriteria(tones: ToneOption[]): Record<string, string | null> {
+  return Object.fromEntries(tones.map((tone) => [tone.name, tone.definition?.trim() || null]));
+}
 
-For each marked term, choose the tone with which the speaker uses it at that point: the attitude the speaker expresses toward what the term refers to. Judge from the surrounding sentences, not from the usual connotation of the word. Judge every occurrence on its own; the same term can carry different tones in different places. Choose "${fallback.name}" when the passage is merely descriptive or gives no clear signal.
+/**
+ * Question keys are not shown to Jev. The number in the instruction is the
+ * same number `markPassage` writes on the term, and backticks name state fields.
+ */
+export function occurrenceInstructions(n: number, hasPurpose: boolean): string {
+  const purpose = hasPurpose ? " The purpose of the analysis is in `purpose`." : "";
+  return `In \`passage\`, what attitude does the speaker express toward what the term marked <term n="${n}"> refers to, at that point? Judge that one marked place from the surrounding sentences. The usual meaning of the word is not the attitude.${purpose}`;
+}
 
-The tones, which are the only permitted answers:
-${list}
-
-Return one result for every marked term: its number, the tone key, and a reason of at most 15 words that points to the wording that decided it.`;
+/** The tone id when this Choice is settled, or null when it should be left unset. */
+export function settledToneId(answer: unknown, tones: ToneOption[]): number | null {
+  if (!answer || typeof answer !== "object") return null;
+  const { choice: selected, probabilities } = answer as {
+    choice?: unknown;
+    probabilities?: unknown;
+  };
+  if (typeof selected !== "string") return null;
+  if (!probabilities || typeof probabilities !== "object") return null;
+  const probability = (probabilities as Record<string, unknown>)[selected];
+  if (typeof probability !== "number" || probability < TONE_SETTLED_AT) return null;
+  return tones.find((tone) => tone.name === selected)?.id ?? null;
 }
 
 export interface SuggestTonesArgs {
-  provider: Provider;
   text: string;
   targets: Span[];
   tones: ToneOption[];
   purpose?: string;
   /** More context is affordable when only one occurrence is being judged. */
   plan?: Partial<PlanOptions>;
+  /** Test seam. The default sends the request to Jev. */
+  ask?: (request: JevRequest) => Promise<Record<string, unknown>>;
 }
 
 export interface SuggestTonesResult {
@@ -138,55 +152,36 @@ export interface SuggestTonesResult {
 }
 
 export async function suggestTones({
-  provider,
   text,
   targets,
   tones,
   purpose,
   plan,
+  ask = askJev,
 }: SuggestTonesArgs): Promise<SuggestTonesResult> {
   if (targets.length === 0) return { suggestions: [], missed: 0 };
   if (tones.length === 0) throw new Error("Define at least one tone first.");
 
-  const byKey = new Map(tones.map((tone) => [toneKey(tone), tone.id]));
-  const keys = tones.map(toneKey) as [string, ...string[]];
-  const schema = z.object({
-    results: z.array(
-      z.object({
-        n: z.number().int().describe("Number of the marked term"),
-        tone: z.enum(keys),
-        reason: z.string(),
-      }),
-    ),
-  });
-  const model = languageModel(provider, "analysis");
-  const system = instructions(tones);
-  const preamble = purpose?.trim()
-    ? `Purpose of the analysis, as described by the researcher:\n${purpose.trim()}\n\n`
-    : "";
-
+  const purposeText = purpose?.trim() ?? "";
+  const hasPurpose = purposeText.length > 0;
+  const criteria = toneCriteria(tones);
   const requests = planToneRequests(text, targets, plan);
   const batches = await mapLimit(requests, 4, async (request) => {
-    const { output } = await generateText({
-      model,
-      instructions: system,
-      output: Output.object({ schema }),
-      maxRetries: 3,
-      prompt: `${preamble}Passage:\n${markPassage(text, request)}`,
+    const questions: JevRequest["questions"] = {};
+    request.targets.forEach((_, index) => {
+      const n = index + 1;
+      questions[`occurrence_${n}`] = choice(occurrenceInstructions(n, hasPurpose), criteria);
     });
-    const found = new Map<number, ToneSuggestion>();
-    for (const result of output.results) {
-      const target = request.targets[result.n - 1];
-      const toneId = byKey.get(result.tone);
-      if (!target || toneId === undefined || found.has(result.n)) continue;
-      found.set(result.n, {
-        start: target.start,
-        end: target.end,
-        toneId,
-        reason: result.reason.trim(),
-      });
-    }
-    return [...found.values()];
+    const state: Record<string, string> = { passage: markPassage(text, request) };
+    if (hasPurpose) state.purpose = purposeText;
+    const answers = await ask({ state, questions });
+    const found: ToneSuggestion[] = [];
+    request.targets.forEach((target, index) => {
+      const toneId = settledToneId(answers[`occurrence_${index + 1}`], tones);
+      if (toneId === null) return;
+      found.push({ start: target.start, end: target.end, toneId, reason: "" });
+    });
+    return found;
   });
 
   const suggestions = batches.flat();
