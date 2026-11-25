@@ -136,6 +136,7 @@ function DocumentTones({
   if (!document.data || !annotations.data || !terms.data || !tones.data) return <LoadingBlock />;
   return (
     <ToneView
+      key={document.data.id}
       document={document.data}
       terms={terms.data}
       tones={tones.data}
