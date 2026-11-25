@@ -6,7 +6,7 @@ A web application for analysing the text of scanned speeches:
 - Combine documents (a speech spread over several scans) or split one (a scan holding several speeches).
 - Keep a list of terms, with optional variants counted under the same term.
 - Count how often each term appears in all documents or a selection, and export the counts.
-- Read a document with its terms highlighted and give each occurrence a tone. Tones are yours to define; the defaults are very negative, negative, neutral, positive, and very positive.
+- Read a document with its terms highlighted and give each occurrence a tone. Tones are yours to define; the defaults are positive, neutral, and negative. Each tone can have a definition of what it means.
 - Ask the AI to suggest the tone of one occurrence or of every occurrence in a document. Suggestions are marked until you confirm them.
 - Describe what the analysis is for and have the AI look for terms you may have overlooked, then include or exclude each one.
 

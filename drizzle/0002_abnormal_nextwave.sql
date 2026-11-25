@@ -1,0 +1,1 @@
+ALTER TABLE "tones" ADD COLUMN "definition" text;

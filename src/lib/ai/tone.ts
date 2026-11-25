@@ -8,6 +8,7 @@ export interface ToneOption {
   name: string;
   score: number;
   isDefault: boolean;
+  definition?: string | null;
 }
 
 export interface ToneSuggestion extends Span {
@@ -104,7 +105,11 @@ const toneKey = (tone: ToneOption) => `tone_${tone.id}`;
 function instructions(tones: ToneOption[]): string {
   const fallback = tones.find((tone) => tone.isDefault) ?? tones[0];
   const list = tones
-    .map((tone) => `- ${toneKey(tone)}: ${tone.name} (score ${tone.score})`)
+    .map((tone) => {
+      const meaning = tone.definition?.trim();
+      const line = `- ${toneKey(tone)}: ${tone.name} (score ${tone.score})`;
+      return meaning ? `${line}. ${meaning}` : line;
+    })
     .join("\n");
   return `You help a researcher analyse the text of speeches. Certain terms in a passage are marked like <term n="3">taxes</term>.
 

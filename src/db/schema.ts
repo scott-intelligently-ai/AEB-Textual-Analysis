@@ -147,6 +147,8 @@ export const tones = pgTable(
     sortOrder: integer("sort_order").notNull(),
     score: real("score").notNull().default(0),
     isDefault: boolean("is_default").notNull().default(false),
+    /** What this tone means. Empty until someone writes one. */
+    definition: text("definition"),
   },
   (t) => [uniqueIndex("tones_name_idx").on(t.name)],
 );
