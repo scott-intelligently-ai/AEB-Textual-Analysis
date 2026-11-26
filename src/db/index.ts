@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { postgresOptions } from "./connection";
+import { postgresOptions, transactionPoolerUrl } from "./connection";
 import * as schema from "./schema";
 
 export const DEFAULT_TONES = [
@@ -79,7 +79,10 @@ async function openPostgres(): Promise<Db> {
     );
   }
   const max = Number(process.env.DATABASE_POOL_MAX ?? 1);
-  const client = postgres(url, postgresOptions(url, Number.isInteger(max) && max > 0 ? max : 1));
+  const client = postgres(
+    transactionPoolerUrl(url),
+    postgresOptions(url, Number.isInteger(max) && max > 0 ? max : 1),
+  );
   const db = drizzle(client, { schema });
   await seed(db);
   return db;
