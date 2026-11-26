@@ -13,12 +13,15 @@ export const CATEGORY_COLUMN_MEANING =
 
 export const FREQUENCY_DOWNLOAD_NOTE = `${VARIANT_MEANING} ${EQUIVALENCE_MEANING} This file counts each term on its own, including its variants. ${CATEGORY_COLUMN_MEANING}`;
 
-export const OCCURRENCE_DOWNLOAD_NOTE = `${VARIANT_MEANING} The term column names that term, and matched_text is the spelling found in the document. ${CATEGORY_COLUMN_MEANING} ${EQUIVALENCE_MEANING} This file does not combine equivalent terms.`;
+export const JEV_DOWNLOAD_MEANING =
+  "A tone suggested by Jev is counted as that tone even when it has not been confirmed. An occurrence with no tone of its own uses the default tone.";
 
-export const TONE_FREQUENCY_DOWNLOAD_NOTE = `${VARIANT_MEANING} ${EQUIVALENCE_MEANING} Each row is one term in one document. There is one count for each tone, then a total. An occurrence with no tone of its own is counted under the default tone. ${CATEGORY_COLUMN_MEANING} This file does not combine equivalent terms.`;
+export const OCCURRENCE_DOWNLOAD_NOTE = `${VARIANT_MEANING} The term column names that term, and matched_text is the spelling found in the document. ${CATEGORY_COLUMN_MEANING} ${EQUIVALENCE_MEANING} This file does not combine equivalent terms. ${JEV_DOWNLOAD_MEANING} tone_set_by is user for a tone you set or Jev suggested, and default when the occurrence has no tone of its own.`;
+
+export const TONE_FREQUENCY_DOWNLOAD_NOTE = `${VARIANT_MEANING} ${EQUIVALENCE_MEANING} Each row is one term in one document. There is one count for each tone, then a total. ${JEV_DOWNLOAD_MEANING} ${CATEGORY_COLUMN_MEANING} This file does not combine equivalent terms.`;
 
 export function distributionDownloadNote(group: DistributionGroup): string {
-  const base = `${VARIANT_MEANING} Every occurrence counts, and an occurrence with no tone of its own uses the default tone.`;
+  const base = `${VARIANT_MEANING} Every occurrence counts. ${JEV_DOWNLOAD_MEANING}`;
   switch (group) {
     case "term":
       return `${base} Each row is one term. ${CATEGORY_COLUMN_MEANING} ${EQUIVALENCE_MEANING} This file does not combine equivalent terms.`;
