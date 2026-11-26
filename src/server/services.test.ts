@@ -194,6 +194,13 @@ describe("services", () => {
     await s.terms.createTerm({ text: "tax" });
     await expect(s.terms.createTerm({ text: "Peace" })).rejects.toThrow(/already on the term list/);
     await expect(s.terms.createTerm({ text: "wars" })).rejects.toThrow(/already covered by the term "war"/);
+    const nato = await s.terms.createTerm({ text: "Nato", caseSensitive: true });
+    const cased = await addDocument("Capitals", "Nato, nato, and NATO.");
+    expect((await s.frequency.getFrequency([cased])).rows.find((row) => row.term === "Nato")?.total).toBe(1);
+    await s.terms.updateTerm(nato.id, { text: "Nato", caseSensitive: false });
+    expect((await s.frequency.getFrequency([cased])).rows.find((row) => row.term === "Nato")?.total).toBe(3);
+    await s.documents.deleteDocument(cased);
+    await s.terms.deleteTerm(nato.id);
     const result = await s.terms.importTerms([{ text: "freedom" }, { text: "WAR" }]);
     expect(result.added.map((term) => term.text)).toEqual(["freedom"]);
     expect(result.skipped).toHaveLength(1);

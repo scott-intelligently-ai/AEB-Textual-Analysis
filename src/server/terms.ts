@@ -21,6 +21,8 @@ export interface TermInput {
   equivalents?: string[];
   /** Name of an equivalence group. Empty means the term stands alone unless equivalents are listed. */
   equivalence?: string | null;
+  /** When true, only this capitalization of the term and its variants is counted. */
+  caseSensitive?: boolean;
 }
 
 const tidy = (value: string) => value.trim().split(/\s+/).join(" ");
@@ -43,7 +45,12 @@ export async function listTerms(): Promise<TermView[]> {
 }
 
 export async function termPatterns(): Promise<TermPattern[]> {
-  return (await listTerms()).map(({ id, text, variants }) => ({ id, text, variants }));
+  return (await listTerms()).map(({ id, text, variants, caseSensitive }) => ({
+    id,
+    text,
+    variants,
+    caseSensitive,
+  }));
 }
 
 /** Every pattern in use, mapped to the term that owns it. */
@@ -62,7 +69,7 @@ async function patternOwners(excludeTermId?: number): Promise<Map<string, schema
 async function prepare(
   input: TermInput,
   excludeTermId?: number,
-): Promise<{ text: string; variants: string[] }> {
+): Promise<{ text: string; variants: string[]; caseSensitive: boolean }> {
   const text = tidy(input.text);
   if (!text) throw badRequest("A term cannot be empty.");
   const owners = await patternOwners(excludeTermId);
@@ -88,7 +95,7 @@ async function prepare(
     seen.add(key);
     variants.push(variant);
   }
-  return { text, variants };
+  return { text, variants, caseSensitive: input.caseSensitive === true };
 }
 
 export async function createTerm(input: TermInput): Promise<schema.Term> {
@@ -102,9 +109,13 @@ export async function updateTerm(id: number, input: TermInput): Promise<schema.T
   const db = await getDb();
   const [existing] = await db.select().from(schema.terms).where(eq(schema.terms.id, id));
   if (!existing) throw notFound("Term");
+  const prepared = await prepare(input, id);
   const [term] = await db
     .update(schema.terms)
-    .set(await prepare(input, id))
+    .set({
+      ...prepared,
+      caseSensitive: input.caseSensitive ?? existing.caseSensitive,
+    })
     .where(eq(schema.terms.id, id))
     .returning();
   await pruneOrphanAnnotations();

@@ -7,10 +7,16 @@ import {
   type TermPattern,
 } from "./match";
 
-const term = (id: number, text: string, variants: string[] = []): TermPattern => ({
+const term = (
+  id: number,
+  text: string,
+  variants: string[] = [],
+  caseSensitive = false,
+): TermPattern => ({
   id,
   text,
   variants,
+  caseSensitive,
 });
 
 const texts = (text: string, terms: TermPattern[]) =>
@@ -35,6 +41,27 @@ describe("findOccurrences", () => {
       { termId: 1, start: 21, end: 28, text: "FREEDOM" },
     ]);
     for (const o of found) expect(text.slice(o.start, o.end)).toBe(o.text);
+  });
+
+  it("matches only the stored capitalization when the term is case sensitive", () => {
+    const text = "War and war and WAR. Wars, but not wars.";
+    expect(texts(text, [term(1, "War", ["Wars"], true)])).toEqual(["War", "Wars"]);
+  });
+
+  it("still matches any whitespace inside a case-sensitive phrase", () => {
+    expect(texts("the War  powers", [term(1, "War powers", [], true)])).toEqual(["War  powers"]);
+    expect(texts("the war powers", [term(1, "War powers", [], true)])).toEqual([]);
+  });
+
+  it("lets a longer case-sensitive phrase win over a shorter case-insensitive term", () => {
+    const found = findOccurrences("War powers and war.", [
+      term(1, "war"),
+      term(2, "War powers", [], true),
+    ]);
+    expect(found.map((occurrence) => [occurrence.termId, occurrence.text])).toEqual([
+      [2, "War powers"],
+      [1, "war"],
+    ]);
   });
 
   it("matches whole words only", () => {

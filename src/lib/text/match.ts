@@ -2,16 +2,19 @@
  * Term matching shared by frequency counting, tone highlighting, and term
  * discovery, so that every screen agrees on what counts as an occurrence.
  *
- * Rules: case-insensitive, whole words only, any run of whitespace between the
- * words of a phrase, and straight and curly quotes treated alike. Occurrences
- * never overlap: the leftmost match wins, and at the same position the longest
- * pattern wins, so "tax cut" is not also counted as "tax".
+ * Rules: case-insensitive unless the term is marked case sensitive, whole words
+ * only, any run of whitespace between the words of a phrase, and straight and
+ * curly quotes treated alike. Occurrences never overlap: the leftmost match
+ * wins, and at the same position the longest pattern wins, so "tax cut" is not
+ * also counted as "tax".
  */
 
 export interface TermPattern {
   id: number;
   text: string;
   variants?: string[];
+  /** When true, only this capitalization of the term and its variants matches. */
+  caseSensitive?: boolean;
 }
 
 export interface Occurrence {
@@ -26,16 +29,21 @@ const DOUBLE_QUOTES = '"\u201c\u201d';
 const HYPHENS = "\\-\u2010\u2011";
 const WORD_CHAR = "[\\p{L}\\p{N}_]";
 
-/** Canonical form used to detect duplicate terms regardless of case or spacing. */
-export function normalizeTerm(value: string): string {
-  return value
+/** Spelling used for matching, with quotes and spacing folded. Case is kept when asked. */
+export function canonicalizeTerm(value: string, foldCase: boolean): string {
+  const cleaned = value
     .replace(new RegExp(`[${APOSTROPHES}]`, "g"), "'")
     .replace(new RegExp(`[${DOUBLE_QUOTES}]`, "g"), '"')
     .replace(new RegExp(`[${HYPHENS}]`, "g"), "-")
     .trim()
     .split(/\s+/)
-    .join(" ")
-    .toLowerCase();
+    .join(" ");
+  return foldCase ? cleaned.toLowerCase() : cleaned;
+}
+
+/** Canonical form used to detect duplicate terms regardless of case or spacing. */
+export function normalizeTerm(value: string): string {
+  return canonicalizeTerm(value, true);
 }
 
 function escapeChar(char: string): string {
@@ -63,46 +71,92 @@ export interface Matcher {
 
 const EMPTY_MATCHER: Matcher = { find: () => [] };
 
+interface CompiledPattern {
+  termId: number;
+  normalized: string;
+  order: number;
+}
+
+interface Hit extends Occurrence {
+  rank: number;
+  order: number;
+}
+
+function compile(patterns: CompiledPattern[], flags: string): { regex: RegExp; patterns: CompiledPattern[] } | null {
+  if (patterns.length === 0) return null;
+  // Alternation is tried in order, so longer patterns go first.
+  const ordered = [...patterns].sort((a, b) => b.normalized.length - a.normalized.length || a.order - b.order);
+  return {
+    patterns: ordered,
+    regex: new RegExp(ordered.map((pattern) => `(${patternSource(pattern.normalized)})`).join("|"), flags),
+  };
+}
+
+function scan(text: string, compiled: { regex: RegExp; patterns: CompiledPattern[] } | null): Hit[] {
+  if (!compiled) return [];
+  const hits: Hit[] = [];
+  compiled.regex.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = compiled.regex.exec(text)) !== null) {
+    if (match[0].length === 0) {
+      compiled.regex.lastIndex += 1;
+      continue;
+    }
+    let group = 1;
+    while (group < match.length && match[group] === undefined) group += 1;
+    const pattern = compiled.patterns[group - 1];
+    hits.push({
+      termId: pattern.termId,
+      start: match.index,
+      end: match.index + match[0].length,
+      text: match[0],
+      rank: pattern.normalized.length,
+      order: pattern.order,
+    });
+  }
+  return hits;
+}
+
+/** Leftmost match wins. At the same position the longer pattern wins. */
+function keepNonOverlapping(hits: Hit[]): Occurrence[] {
+  const ordered = [...hits].sort((a, b) => a.start - b.start || b.rank - a.rank || a.order - b.order);
+  const kept: Occurrence[] = [];
+  let coveredUntil = -1;
+  for (const hit of ordered) {
+    if (hit.start < coveredUntil) continue;
+    kept.push({ termId: hit.termId, start: hit.start, end: hit.end, text: hit.text });
+    coveredUntil = hit.end;
+  }
+  return kept;
+}
+
 export function buildMatcher(terms: TermPattern[]): Matcher {
   const seen = new Set<string>();
-  const patterns: { termId: number; normalized: string }[] = [];
+  const insensitive: CompiledPattern[] = [];
+  const sensitive: CompiledPattern[] = [];
+  let order = 0;
   for (const term of terms) {
     for (const raw of [term.text, ...(term.variants ?? [])]) {
-      const normalized = normalizeTerm(raw);
-      if (!normalized || seen.has(normalized)) continue;
-      seen.add(normalized);
-      patterns.push({ termId: term.id, normalized });
+      const key = normalizeTerm(raw);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const pattern = {
+        termId: term.id,
+        normalized: canonicalizeTerm(raw, term.caseSensitive !== true),
+        order,
+      };
+      order += 1;
+      (term.caseSensitive === true ? sensitive : insensitive).push(pattern);
     }
   }
-  if (patterns.length === 0) return EMPTY_MATCHER;
+  if (insensitive.length === 0 && sensitive.length === 0) return EMPTY_MATCHER;
 
-  // Alternation is tried in order, so longer patterns go first.
-  patterns.sort((a, b) => b.normalized.length - a.normalized.length);
-  const regex = new RegExp(
-    patterns.map((p) => `(${patternSource(p.normalized)})`).join("|"),
-    "giu",
-  );
+  const either = compile(insensitive, "giu");
+  const exact = compile(sensitive, "gu");
 
   return {
     find(text: string): Occurrence[] {
-      const occurrences: Occurrence[] = [];
-      regex.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = regex.exec(text)) !== null) {
-        if (match[0].length === 0) {
-          regex.lastIndex += 1;
-          continue;
-        }
-        let group = 1;
-        while (group < match.length && match[group] === undefined) group += 1;
-        occurrences.push({
-          termId: patterns[group - 1].termId,
-          start: match.index,
-          end: match.index + match[0].length,
-          text: match[0],
-        });
-      }
-      return occurrences;
+      return keepNonOverlapping([...scan(text, either), ...scan(text, exact)]);
     },
   };
 }
