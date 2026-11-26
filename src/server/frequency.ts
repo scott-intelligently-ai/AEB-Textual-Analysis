@@ -1,13 +1,29 @@
 import { inArray } from "drizzle-orm";
 import { getDb, schema } from "../db";
+import { formatTermCategories } from "../lib/text/categories";
 import { OCCURRENCE_DOWNLOAD_NOTE, TONE_FREQUENCY_DOWNLOAD_NOTE, csvWithNote } from "../lib/text/explanations";
 import { findOccurrences, frequencyTable, spanKey, type FrequencyTable } from "../lib/text/match";
 import { getDocumentRows } from "./documents";
+import { listCategories } from "./taxonomy";
 import { listTerms, termPatterns } from "./terms";
 import { listTones } from "./tones";
 
 export async function getFrequency(documentIds?: number[]): Promise<FrequencyTable> {
-  return frequencyTable(await getDocumentRows(documentIds), await termPatterns());
+  const termList = await listTerms();
+  const table = frequencyTable(
+    await getDocumentRows(documentIds),
+    termList.map(({ id, text, variants, caseSensitive }) => ({ id, text, variants, caseSensitive })),
+  );
+  const labels = await categoryLabels(termList);
+  return {
+    ...table,
+    rows: table.rows.map((row) => ({ ...row, categories: labels.get(row.termId) ?? "" })),
+  };
+}
+
+async function categoryLabels(terms: { id: number; categoryIds: number[] }[]): Promise<Map<number, string>> {
+  const categories = await listCategories();
+  return new Map(terms.map((term) => [term.id, formatTermCategories(term.categoryIds, categories)]));
 }
 
 function snippet(text: string, start: number, end: number, radius = 80): string {
@@ -47,9 +63,10 @@ async function markedOccurrences(documentIds?: number[]) {
 export async function occurrencesCsv(documentIds?: number[]): Promise<string> {
   const { documents, termList, patterns, toneById, fallback, tagged } = await markedOccurrences(documentIds);
   const terms = new Map(termList.map((term) => [term.id, term.text]));
+  const labels = await categoryLabels(termList);
 
   const rows: (string | number)[][] = [
-    ["document", "term", "matched_text", "position", "tone", "tone_score", "tone_set_by", "context"],
+    ["document", "term", "categories", "matched_text", "position", "tone", "tone_score", "tone_set_by", "context"],
   ];
   for (const document of documents) {
     for (const occurrence of findOccurrences(document.text, patterns)) {
@@ -58,6 +75,7 @@ export async function occurrencesCsv(documentIds?: number[]): Promise<string> {
       rows.push([
         document.title,
         terms.get(occurrence.termId) ?? "",
+        labels.get(occurrence.termId) ?? "",
         occurrence.text,
         occurrence.start,
         tone?.name ?? "",
@@ -93,8 +111,9 @@ export async function toneFrequencyCsv(documentIds?: number[]): Promise<string> 
     }
   }
 
+  const labels = await categoryLabels(termList);
   const rows: (string | number)[][] = [
-    ["document", "term", ...tones.map((tone) => tone.name), "total"],
+    ["document", "term", "categories", ...tones.map((tone) => tone.name), "total"],
   ];
   for (const document of documents) {
     for (const term of termList) {
@@ -102,6 +121,7 @@ export async function toneFrequencyCsv(documentIds?: number[]): Promise<string> 
       rows.push([
         document.title,
         term.text,
+        labels.get(term.id) ?? "",
         ...values,
         values.reduce((sum, count) => sum + count, 0),
       ]);

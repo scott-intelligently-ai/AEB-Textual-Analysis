@@ -57,7 +57,8 @@ export function ToneDistributionPanel() {
               category includes its subcategories, while a subcategory counts only the terms
               assigned to it. A term in more than one category is counted in each, so category
               totals can add up to more than the overall total. The downloaded CSV begins with the
-              same explanation for the view you have selected.
+              same explanation for the view you have selected. The term and equivalent-terms
+              downloads also list the categories for each term.
             </p>
           </div>
         </div>

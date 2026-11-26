@@ -180,8 +180,17 @@ export interface FrequencyDocument {
 
 export interface FrequencyTable {
   documents: { id: number; title: string; total: number }[];
-  rows: { termId: number; term: string; counts: number[]; total: number }[];
+  rows: { termId: number; term: string; categories?: string; counts: number[]; total: number }[];
   grandTotal: number;
+}
+
+/** Rows for the counts download: one term per row, with that term's categories. */
+export function frequencyCountsRows(data: FrequencyTable): (string | number)[][] {
+  return [
+    ["term", "categories", ...data.documents.map((document) => document.title), "total"],
+    ...data.rows.map((row) => [row.term, row.categories ?? "", ...row.counts, row.total]),
+    ["total", "", ...data.documents.map((document) => document.total), data.grandTotal],
+  ];
 }
 
 export function frequencyTable(
