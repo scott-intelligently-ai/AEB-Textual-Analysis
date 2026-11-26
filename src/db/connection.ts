@@ -29,6 +29,25 @@ export function databaseUrlProblem(url: string): string | undefined {
   return undefined;
 }
 
+/**
+ * The session pooler (port 5432) holds a database connection for the whole
+ * client. A warm server keeps that connection, and Supabase stops new ones at
+ * the pool size. The transaction pooler (port 6543) shares those connections.
+ */
+export function transactionPoolerUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  if (!parsed.hostname.includes("pooler.supabase.com")) return url;
+  if (parsed.port === "6543") return url;
+  if (parsed.port !== "5432" && parsed.port !== "") return url;
+  parsed.port = "6543";
+  return parsed.href;
+}
+
 export function postgresOptions(url: string, max: number): Options {
   const problem = databaseUrlProblem(url);
   if (problem) throw new Error(problem);
