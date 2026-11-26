@@ -1,0 +1,1 @@
+ALTER TABLE "terms" ADD COLUMN "case_sensitive" boolean DEFAULT false NOT NULL;

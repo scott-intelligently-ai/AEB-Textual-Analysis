@@ -85,6 +85,8 @@ export const terms = pgTable("terms", {
   id: serial("id").primaryKey(),
   text: text("text").notNull(),
   variants: jsonb("variants").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  /** When set, only this capitalization of the term and its variants is counted. */
+  caseSensitive: boolean("case_sensitive").notNull().default(false),
   /** Set when this term is analyzed together with the other members of a group. */
   equivalenceId: integer("equivalence_id").references(() => termEquivalences.id, {
     onDelete: "set null",

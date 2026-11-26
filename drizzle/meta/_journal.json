@@ -15,6 +15,13 @@
       "when": 1795518386551,
       "tag": "0001_dapper_psylocke",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795657737305,
+      "tag": "0002_term_case_sensitive",
+      "breakpoints": true
     }
   ]
 }

@@ -20,6 +20,7 @@ import {
   PageHeader,
   TextArea,
   TextInput,
+  cx,
 } from "@/components/ui";
 import { downloadText, errorMessage, fetcher, send } from "@/lib/client/api";
 import type { FrequencyTable, ImportResult, Term, TermCategory, TermEquivalence } from "@/lib/client/types";
@@ -49,6 +50,7 @@ export function TermsPage() {
 
   const [text, setText] = useState("");
   const [variants, setVariants] = useState("");
+  const [caseSensitive, setCaseSensitive] = useState(false);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Term | null>(null);
@@ -62,14 +64,31 @@ export function TermsPage() {
     setAdding(true);
     setAddError(null);
     try {
-      await send("POST", "/api/terms", { text, variants: splitVariants(variants) });
+      await send("POST", "/api/terms", {
+        text,
+        variants: splitVariants(variants),
+        caseSensitive,
+      });
       setText("");
       setVariants("");
+      setCaseSensitive(false);
       termField.current?.focus();
     } catch (error) {
       setAddError(errorMessage(error));
     } finally {
       setAdding(false);
+    }
+  }
+
+  async function setCase(term: Term, next: boolean) {
+    try {
+      await send("PATCH", `/api/terms/${term.id}`, {
+        text: term.text,
+        variants: term.variants,
+        caseSensitive: next,
+      });
+    } catch (error) {
+      notifyError(error);
     }
   }
 
@@ -111,9 +130,9 @@ export function TermsPage() {
         description={
           <>
             <span className="block">
-              The words and phrases the analysis counts and highlights. Matching ignores case and
-              only matches whole words, so “tax” does not match “taxes”. A term can sit in any
-              number of categories.
+              The words and phrases the analysis counts and highlights. Matching ignores case
+              unless Match case is checked for that term, and it only matches whole words, so
+              “tax” does not match “taxes”. A term can sit in any number of categories.
             </span>
             <span className="mt-2 block">{VARIANT_MEANING}</span>
             <span className="mt-2 block">{EQUIVALENCE_MEANING}</span>
@@ -161,6 +180,11 @@ export function TermsPage() {
           <Button type="submit" variant="primary" busy={adding} disabled={!text.trim()}>
             <PlusIcon /> Add term
           </Button>
+          <MatchCaseChoice
+            checked={caseSensitive}
+            onChange={setCaseSensitive}
+            className="basis-full"
+          />
         </form>
         {addError ? (
           <div className="mt-3">
@@ -185,6 +209,7 @@ export function TermsPage() {
             <thead className="border-b border-zinc-200 bg-zinc-50 text-left text-xs font-medium text-zinc-500">
               <tr>
                 <th className="px-4 py-2">Term</th>
+                <th className="px-2 py-2">Match case</th>
                 <th className="px-2 py-2">Variants</th>
                 <th className="px-2 py-2">Categories</th>
                 <th className="px-2 py-2">Equivalent with</th>
@@ -200,6 +225,15 @@ export function TermsPage() {
               {terms.data.map((term) => (
                 <tr key={term.id} className="hover:bg-zinc-50">
                   <td className="px-4 py-2.5 font-medium text-zinc-900">{term.text}</td>
+                  <td className="px-2 py-2.5">
+                    <input
+                      type="checkbox"
+                      aria-label={`Match case for ${term.text}`}
+                      className="size-4 rounded border-zinc-300 accent-indigo-600"
+                      checked={term.caseSensitive}
+                      onChange={(event) => void setCase(term, event.target.checked)}
+                    />
+                  </td>
                   <td className="px-2 py-2.5">
                     <div className="flex flex-wrap gap-1">
                       {term.variants.length === 0 ? (
@@ -250,6 +284,33 @@ export function TermsPage() {
   );
 }
 
+function MatchCaseChoice({
+  checked,
+  onChange,
+  className,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  className?: string;
+}) {
+  return (
+    <label className={cx("flex items-start gap-2 text-sm text-zinc-700", className)}>
+      <input
+        type="checkbox"
+        className="mt-0.5 size-4 rounded border-zinc-300 accent-indigo-600"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span>
+        <span className="font-medium">Match case</span>
+        <span className="mt-0.5 block text-xs text-zinc-500">
+          Only count this term and its variants when the capital letters match.
+        </span>
+      </span>
+    </label>
+  );
+}
+
 function CategoryBadges({ term, categories }: { term: Term; categories: TermCategory[] }) {
   const labels = categories
     .filter((category) => term.categoryIds.includes(category.id))
@@ -280,6 +341,7 @@ function EditTermDialog({
 }) {
   const [text, setText] = useState(term.text);
   const [variants, setVariants] = useState(term.variants.join(", "));
+  const [caseSensitive, setCaseSensitive] = useState(term.caseSensitive);
   const [categoryIds, setCategoryIds] = useState<number[]>(term.categoryIds);
   const [equivalenceId, setEquivalenceId] = useState<number | "">(term.equivalenceId ?? "");
   const [busy, setBusy] = useState(false);
@@ -294,7 +356,11 @@ function EditTermDialog({
     setBusy(true);
     setError(null);
     try {
-      await send("PATCH", `/api/terms/${term.id}`, { text, variants: splitVariants(variants) });
+      await send("PATCH", `/api/terms/${term.id}`, {
+        text,
+        variants: splitVariants(variants),
+        caseSensitive,
+      });
       await send("PUT", `/api/terms/${term.id}/categories`, { categoryIds });
       await send("PUT", `/api/terms/${term.id}/equivalence`, {
         equivalenceId: equivalenceId === "" ? null : equivalenceId,
@@ -336,6 +402,7 @@ function EditTermDialog({
           </span>
           <TextInput value={variants} onChange={(event) => setVariants(event.target.value)} />
         </label>
+        <MatchCaseChoice checked={caseSensitive} onChange={setCaseSensitive} />
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-zinc-600">
             Equivalent group (optional; the terms stay separate)
