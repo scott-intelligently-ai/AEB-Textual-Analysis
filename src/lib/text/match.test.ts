@@ -43,9 +43,9 @@ describe("findOccurrences", () => {
     for (const o of found) expect(text.slice(o.start, o.end)).toBe(o.text);
   });
 
-  it("matches only the stored capitalization when the term is case sensitive", () => {
+  it("matches only the stored capitalization of a case-sensitive term, and any capitalization of its variants", () => {
     const text = "War and war and WAR. Wars, but not wars.";
-    expect(texts(text, [term(1, "War", ["Wars"], true)])).toEqual(["War", "Wars"]);
+    expect(texts(text, [term(1, "War", ["Wars"], true)])).toEqual(["War", "Wars", "wars"]);
   });
 
   it("still matches any whitespace inside a case-sensitive phrase", () => {

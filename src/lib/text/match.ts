@@ -2,18 +2,19 @@
  * Term matching shared by frequency counting, tone highlighting, and term
  * discovery, so that every screen agrees on what counts as an occurrence.
  *
- * Rules: case-insensitive unless the term is marked case sensitive, whole words
- * only, any run of whitespace between the words of a phrase, and straight and
- * curly quotes treated alike. Occurrences never overlap: the leftmost match
- * wins, and at the same position the longest pattern wins, so "tax cut" is not
- * also counted as "tax".
+ * Rules: case-insensitive unless the term is marked case sensitive. A
+ * case-sensitive term's variants still match any capitalization. Matching is
+ * whole words only, with any run of whitespace between the words of a phrase,
+ * and straight and curly quotes treated alike. Occurrences never overlap: the
+ * leftmost match wins, and at the same position the longest pattern wins, so
+ * "tax cut" is not also counted as "tax".
  */
 
 export interface TermPattern {
   id: number;
   text: string;
   variants?: string[];
-  /** When true, only this capitalization of the term and its variants matches. */
+  /** When true, only this capitalization of the term itself matches. Variants stay case-insensitive. */
   caseSensitive?: boolean;
 }
 
@@ -136,17 +137,19 @@ export function buildMatcher(terms: TermPattern[]): Matcher {
   const sensitive: CompiledPattern[] = [];
   let order = 0;
   for (const term of terms) {
-    for (const raw of [term.text, ...(term.variants ?? [])]) {
+    const pieces = [term.text, ...(term.variants ?? [])];
+    for (const [index, raw] of pieces.entries()) {
       const key = normalizeTerm(raw);
       if (!key || seen.has(key)) continue;
       seen.add(key);
+      const exact = index === 0 && term.caseSensitive === true;
       const pattern = {
         termId: term.id,
-        normalized: canonicalizeTerm(raw, term.caseSensitive !== true),
+        normalized: canonicalizeTerm(raw, !exact),
         order,
       };
       order += 1;
-      (term.caseSensitive === true ? sensitive : insensitive).push(pattern);
+      (exact ? sensitive : insensitive).push(pattern);
     }
   }
   if (insensitive.length === 0 && sensitive.length === 0) return EMPTY_MATCHER;
