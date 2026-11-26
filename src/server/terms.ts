@@ -21,7 +21,7 @@ export interface TermInput {
   equivalents?: string[];
   /** Name of an equivalence group. Empty means the term stands alone unless equivalents are listed. */
   equivalence?: string | null;
-  /** When true, only this capitalization of the term and its variants is counted. */
+  /** When true, only this capitalization of the term itself is counted. Variants still match any capitalization. */
   caseSensitive?: boolean;
 }
 

@@ -131,8 +131,9 @@ export function TermsPage() {
           <>
             <span className="block">
               The words and phrases the analysis counts and highlights. Matching ignores case
-              unless Match case is checked for that term, and it only matches whole words, so
-              “tax” does not match “taxes”. A term can sit in any number of categories.
+              unless Match case is checked for that term. Variants still match any capitalization,
+              and matching only counts whole words, so “tax” does not match “taxes”. A term can
+              sit in any number of categories.
             </span>
             <span className="mt-2 block">{VARIANT_MEANING}</span>
             <span className="mt-2 block">{EQUIVALENCE_MEANING}</span>
@@ -304,7 +305,7 @@ function MatchCaseChoice({
       <span>
         <span className="font-medium">Match case</span>
         <span className="mt-0.5 block text-xs text-zinc-500">
-          Only count this term and its variants when the capital letters match.
+          Only count this term when the capital letters match. Variants still match any capitalization.
         </span>
       </span>
     </label>
