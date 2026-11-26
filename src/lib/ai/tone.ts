@@ -61,6 +61,29 @@ function snapEnd(text: string, to: number, limit: number): number {
  * its targets plus surrounding context, so long documents are judged in
  * overlapping windows rather than all at once.
  */
+/** Jev calls one web request may make before the host stops it. */
+export const JEV_CALLS_PER_REQUEST = 8;
+
+/**
+ * The first Jev calls for these occurrences, and how many occurrences are left
+ * for a later request. `after` is the start of the last occurrence in this batch.
+ */
+export function takeToneBatch<T extends Span>(
+  text: string,
+  targets: T[],
+  calls = JEV_CALLS_PER_REQUEST,
+): { batch: T[]; remaining: number; after?: number } {
+  if (targets.length === 0 || calls <= 0) return { batch: [], remaining: targets.length };
+  const planned = planToneRequests(text, targets);
+  const batch = planned.slice(0, calls).flatMap((request) => request.targets) as T[];
+  const after = batch.reduce((latest, target) => Math.max(latest, target.start), -1);
+  return {
+    batch,
+    remaining: targets.length - batch.length,
+    ...(after >= 0 ? { after } : {}),
+  };
+}
+
 export function planToneRequests(
   text: string,
   targets: Span[],

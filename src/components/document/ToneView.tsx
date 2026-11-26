@@ -13,9 +13,9 @@ import {
 } from "@/components/icons";
 import { MarkedText } from "@/components/MarkedText";
 import { Badge, Button, Card, EmptyState, IconButton, Modal, Notice, TextInput, cx } from "@/components/ui";
-import { send } from "@/lib/client/api";
+import { fetcher, send } from "@/lib/client/api";
 import { isTyping, modalOpen } from "@/lib/client/dom";
-import type { AiToneResult, Annotation, DocumentDetail, Term, Tone } from "@/lib/client/types";
+import type { AiToneResult, Annotation, DocumentDetail, DocumentSummary, Term, Tone } from "@/lib/client/types";
 import { documentTermList, type TermSort } from "@/lib/text/documentTerms";
 import { findOccurrences, spanKey, type Occurrence } from "@/lib/text/match";
 
@@ -56,6 +56,7 @@ export function ToneView({
   const [bulk, setBulk] = useState<"suggest" | "confirm" | "discard" | null>(null);
   const [suggestChoice, setSuggestChoice] = useState(false);
   const [suggestingAll, setSuggestingAll] = useState(false);
+  const [suggestLabel, setSuggestLabel] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<AiToneResult | null>(null);
 
   const occurrences = useMemo(() => findOccurrences(document.text, terms), [document.text, terms]);
@@ -197,22 +198,52 @@ export function ToneView({
     }
   }
 
+  async function suggestOneDocument(id: number): Promise<AiToneResult> {
+    const total: AiToneResult = { suggested: 0, skipped: 0, missed: 0 };
+    let after: number | undefined;
+    for (;;) {
+      const result = await send<AiToneResult>(
+        "POST",
+        `/api/documents/${id}/ai-tone`,
+        after === undefined ? {} : { after },
+      );
+      total.suggested += result.suggested;
+      total.skipped += result.skipped;
+      total.missed += result.missed;
+      if (!result.remaining || result.after === undefined || result.after === after) return total;
+      after = result.after;
+    }
+  }
+
   async function suggestAll(scope: "document" | "all") {
     setSuggestChoice(false);
     setBulk("suggest");
     setSuggestingAll(scope === "all");
+    setSuggestLabel(scope === "all" ? "Asking Jev about every document…" : "Asking Jev…");
     setLastRun(null);
+    const total: AiToneResult = { suggested: 0, skipped: 0, missed: 0 };
     try {
-      setLastRun(
-        scope === "all"
-          ? await send<AiToneResult>("POST", "/api/documents/ai-tones", {})
-          : await send<AiToneResult>("POST", `/api/documents/${document.id}/ai-tone`, {}),
-      );
+      if (scope === "all") {
+        const documents = await fetcher<DocumentSummary[]>("/api/documents");
+        total.documents = documents.length;
+        for (let index = 0; index < documents.length; index += 1) {
+          setSuggestLabel(`Asking Jev… document ${index + 1} of ${documents.length}`);
+          const result = await suggestOneDocument(documents[index].id);
+          total.suggested += result.suggested;
+          total.skipped += result.skipped;
+          total.missed += result.missed;
+        }
+      } else {
+        Object.assign(total, await suggestOneDocument(document.id));
+      }
+      setLastRun({ ...total });
     } catch (error) {
+      if (total.suggested > 0 || total.missed > 0 || total.skipped > 0) setLastRun({ ...total });
       notifyError(error);
     } finally {
       setBulk(null);
       setSuggestingAll(false);
+      setSuggestLabel(null);
     }
   }
 
@@ -350,7 +381,7 @@ export function ToneView({
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <Button variant="primary" busy={bulk === "suggest"} onClick={() => setSuggestChoice(true)}>
             {bulk === "suggest" ? (
-              suggestingAll ? "Asking Jev about every document…" : "Asking Jev…"
+              suggestLabel ?? (suggestingAll ? "Asking Jev about every document…" : "Asking Jev…")
             ) : (
               <>
                 <SparklesIcon /> Suggest tones with Jev
