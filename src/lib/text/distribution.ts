@@ -5,6 +5,7 @@
  */
 
 import { formatTermCategories } from "./categories";
+import { formatTermWithVariants } from "./variants";
 
 export type DistributionGroup =
   | "term"
@@ -38,6 +39,7 @@ export interface DistributionOccurrence {
 export interface DistributionTerm {
   id: number;
   text: string;
+  variants?: string[];
   equivalenceId: number | null;
 }
 
@@ -60,6 +62,8 @@ export interface DistributionDocument {
 export interface DistributionRow {
   id: string;
   label: string;
+  /** Present when the row is one term: the term and its variants, separated by slashes. */
+  termWithVariants?: string;
   /** Present when the row is a term, or a group of terms. */
   categories?: string;
   counts: number[];
@@ -122,9 +126,13 @@ export function buildToneDistribution(input: {
     assignedTo.set(membership.termId, set);
   }
   const categoryLabels = new Map<string, string>();
+  const termForms = new Map<string, string>();
   const labelsFor = (termId: number) => formatTermCategories(assignedTo.get(termId) ?? [], categories);
   if (input.group === "term") {
-    for (const term of input.terms) categoryLabels.set(`term:${term.id}`, labelsFor(term.id));
+    for (const term of input.terms) {
+      categoryLabels.set(`term:${term.id}`, labelsFor(term.id));
+      termForms.set(`term:${term.id}`, formatTermWithVariants(term.text, term.variants));
+    }
   } else if (input.group === "equivalence") {
     const grouped = new Map<number, number[]>();
     for (const term of input.terms) {
@@ -223,6 +231,7 @@ export function buildToneDistribution(input: {
       return {
         id: bucket.id,
         label: bucket.label,
+        ...(termForms.has(bucket.id) ? { termWithVariants: termForms.get(bucket.id) ?? "" } : {}),
         ...(categoryLabels.has(bucket.id) ? { categories: categoryLabels.get(bucket.id) ?? "" } : {}),
         counts,
         total: counts.reduce((sum, count) => sum + count, 0),
@@ -247,16 +256,19 @@ const CSV_HEADERS: Record<DistributionGroup, string> = {
 };
 
 export function distributionCsv(distribution: ToneDistribution): (string | number)[][] {
+  const includeForms = distribution.group === "term";
   const includeCategories = distribution.group === "term" || distribution.group === "equivalence";
   return [
     [
       CSV_HEADERS[distribution.group],
+      ...(includeForms ? ["term_with_variants"] : []),
       ...(includeCategories ? ["categories"] : []),
       ...distribution.tones.map((tone) => tone.name),
       "total",
     ],
     ...distribution.rows.map((row) => [
       row.label,
+      ...(includeForms ? [row.termWithVariants ?? row.label] : []),
       ...(includeCategories ? [row.categories ?? ""] : []),
       ...row.counts,
       row.total,

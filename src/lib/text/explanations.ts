@@ -11,20 +11,23 @@ export const EQUIVALENCE_MEANING =
 export const CATEGORY_COLUMN_MEANING =
   "The categories column lists every category assigned to that term. A subcategory is written as its parent and its own name, and several categories are separated by a semicolon.";
 
-export const FREQUENCY_DOWNLOAD_NOTE = `${VARIANT_MEANING} ${EQUIVALENCE_MEANING} This file counts each term on its own, including its variants. ${CATEGORY_COLUMN_MEANING}`;
+export const TERM_FORMS_COLUMN_MEANING =
+  "The term_with_variants column lists the term and then each of its variants, separated by slashes.";
+
+export const FREQUENCY_DOWNLOAD_NOTE = `${VARIANT_MEANING} ${EQUIVALENCE_MEANING} This file counts each term on its own, including its variants. ${TERM_FORMS_COLUMN_MEANING} ${CATEGORY_COLUMN_MEANING}`;
 
 export const JEV_DOWNLOAD_MEANING =
   "A tone suggested by Jev is counted as that tone even when it has not been confirmed. An occurrence with no tone of its own uses the default tone.";
 
-export const OCCURRENCE_DOWNLOAD_NOTE = `${VARIANT_MEANING} The term column names that term, and matched_text is the spelling found in the document. ${CATEGORY_COLUMN_MEANING} ${EQUIVALENCE_MEANING} This file does not combine equivalent terms. ${JEV_DOWNLOAD_MEANING} tone_set_by is user for a tone you set or Jev suggested, and default when the occurrence has no tone of its own.`;
+export const OCCURRENCE_DOWNLOAD_NOTE = `${VARIANT_MEANING} The term column names that term, and matched_text is the spelling found in the document. ${TERM_FORMS_COLUMN_MEANING} ${CATEGORY_COLUMN_MEANING} ${EQUIVALENCE_MEANING} This file does not combine equivalent terms. ${JEV_DOWNLOAD_MEANING} tone_set_by is user for a tone you set or Jev suggested, and default when the occurrence has no tone of its own.`;
 
-export const TONE_FREQUENCY_DOWNLOAD_NOTE = `${VARIANT_MEANING} ${EQUIVALENCE_MEANING} Each row is one term in one document. There is one count for each tone, then a total. ${JEV_DOWNLOAD_MEANING} ${CATEGORY_COLUMN_MEANING} This file does not combine equivalent terms.`;
+export const TONE_FREQUENCY_DOWNLOAD_NOTE = `${VARIANT_MEANING} ${EQUIVALENCE_MEANING} Each row is one term in one document. There is one count for each tone, then a total. ${JEV_DOWNLOAD_MEANING} ${TERM_FORMS_COLUMN_MEANING} ${CATEGORY_COLUMN_MEANING} This file does not combine equivalent terms.`;
 
 export function distributionDownloadNote(group: DistributionGroup): string {
   const base = `${VARIANT_MEANING} Every occurrence counts. ${JEV_DOWNLOAD_MEANING}`;
   switch (group) {
     case "term":
-      return `${base} Each row is one term. ${CATEGORY_COLUMN_MEANING} ${EQUIVALENCE_MEANING} This file does not combine equivalent terms.`;
+      return `${base} Each row is one term. ${TERM_FORMS_COLUMN_MEANING} ${CATEGORY_COLUMN_MEANING} ${EQUIVALENCE_MEANING} This file does not combine equivalent terms.`;
     case "equivalence":
       return `${base} ${EQUIVALENCE_MEANING} Each row is one equivalence group, or a term that is not in a group. ${CATEGORY_COLUMN_MEANING} For an equivalence group, the categories are those of the terms in the group.`;
     case "category":

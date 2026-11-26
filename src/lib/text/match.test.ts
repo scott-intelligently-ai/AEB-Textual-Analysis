@@ -151,9 +151,9 @@ describe("frequencyTable", () => {
   it("counts each term per document with row and column totals", () => {
     const table = frequencyTable(documents, terms);
     expect(table.rows).toEqual([
-      { termId: 1, term: "tax", counts: [2, 1], total: 3 },
-      { termId: 2, term: "freedom", counts: [1, 3], total: 4 },
-      { termId: 3, term: "liberty", counts: [0, 0], total: 0 },
+      { termId: 1, term: "tax", termWithVariants: "tax / taxes", counts: [2, 1], total: 3 },
+      { termId: 2, term: "freedom", termWithVariants: "freedom", counts: [1, 3], total: 4 },
+      { termId: 3, term: "liberty", termWithVariants: "liberty", counts: [0, 0], total: 0 },
     ]);
     expect(table.documents.map((d) => d.total)).toEqual([3, 4]);
     expect(table.grandTotal).toBe(7);
@@ -173,10 +173,10 @@ describe("frequencyTable", () => {
     table.rows[0].categories = "Economy";
     table.rows[1].categories = "Rights; Speech";
     const rows = frequencyCountsRows(table);
-    expect(rows[0]).toEqual(["term", "categories", "A", "B", "total"]);
-    expect(rows[1]).toEqual(["tax", "Economy", 2, 1, 3]);
-    expect(rows[2]).toEqual(["freedom", "Rights; Speech", 1, 3, 4]);
-    expect(rows[4]).toEqual(["total", "", 3, 4, 7]);
+    expect(rows[0]).toEqual(["term", "term_with_variants", "categories", "A", "B", "total"]);
+    expect(rows[1]).toEqual(["tax", "tax / taxes", "Economy", 2, 1, 3]);
+    expect(rows[2]).toEqual(["freedom", "freedom", "Rights; Speech", 1, 3, 4]);
+    expect(rows[4]).toEqual(["total", "", "", 3, 4, 7]);
   });
 
   it("restricts counts to the documents given", () => {

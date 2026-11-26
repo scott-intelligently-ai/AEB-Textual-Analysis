@@ -284,12 +284,12 @@ describe("services", () => {
     const lines = (await s.frequency.occurrencesCsv([id])).trim().split("\r\n");
     expect(lines[0].startsWith("how_to_read_this_file,")).toBe(true);
     expect(lines[1]).toBe(
-      "document,term,categories,matched_text,position,tone,tone_score,tone_set_by,context",
+      "document,term,term_with_variants,categories,matched_text,position,tone,tone_score,tone_set_by,context",
     );
-    expect(lines.slice(2).map((line) => line.split(",").slice(1, 8).join(","))).toEqual([
-      "peace,,Peace,0,Neutral,0,default",
-      "peace,,peace,7,Neutral,0,default",
-      "war,,war,21,Negative,-1,user",
+    expect(lines.slice(2).map((line) => line.split(",").slice(1, 9).join(","))).toEqual([
+      "peace,peace,,Peace,0,Neutral,0,default",
+      "peace,peace,,peace,7,Neutral,0,default",
+      "war,war / wars,,war,21,Negative,-1,user",
     ]);
     await s.documents.deleteDocument(id);
   });
@@ -308,8 +308,8 @@ describe("services", () => {
       reason: "A warning.",
     });
     const occurrence = (await s.frequency.occurrencesCsv([id])).trim().split("\r\n")[2].split(",");
-    expect(occurrence[5]).toBe("Negative");
-    expect(occurrence[7]).toBe("user");
+    expect(occurrence[6]).toBe("Negative");
+    expect(occurrence[8]).toBe("user");
     const frequency = (await s.frequency.toneFrequencyCsv([id])).trim().split("\r\n");
     const header = frequency[1].split(",");
     const row = frequency.find((line) => line.startsWith("Jev export,peace,"))!.split(",");
@@ -346,10 +346,10 @@ describe("services", () => {
     const tones = (await s.tones.listTones()).map((tone) => tone.name);
     const lines = (await s.frequency.toneFrequencyCsv([first, second])).trim().split("\r\n");
     expect(lines[0].startsWith("how_to_read_this_file,")).toBe(true);
-    expect(lines[1]).toBe(["document", "term", "categories", ...tones, "total"].join(","));
+    expect(lines[1]).toBe(["document", "term", "term_with_variants", "categories", ...tones, "total"].join(","));
     const row = (document: string, term: string) =>
       lines.find((line) => line.startsWith(`${document},${term},`));
-    const numbers = (line: string | undefined) => line?.split(",").slice(3);
+    const numbers = (line: string | undefined) => line?.split(",").slice(4);
     expect(numbers(row("Tone counts", "peace"))).toEqual(["1", "1", "0", "2"]);
     expect(numbers(row("Tone counts", "war"))).toEqual(["0", "0", "1", "1"]);
     expect(numbers(row("Tone counts again", "peace"))).toEqual(["0", "1", "0", "1"]);
@@ -527,16 +527,16 @@ describe("services", () => {
     expect(csvLines[1]).toBe(`scope,${overall.tones.map((tone) => tone.name).join(",")},total`);
 
     const byTerm = (await s.distribution.toneDistributionCsv("term", [id])).split("\r\n");
-    expect(byTerm[1]).toBe(`term,categories,${names.join(",")},total`);
+    expect(byTerm[1]).toBe(`term,term_with_variants,categories,${names.join(",")},total`);
     const categoryCell = (label: string) =>
-      byTerm.find((line) => line.startsWith(`${label},`))?.split(",")[1];
+      byTerm.find((line) => line.startsWith(`${label},`))?.split(",")[2];
     expect(categoryCell("peace")).toBe("Foreign / Treaties");
     expect(categoryCell("war")).toBe("Domestic; Foreign");
     expect(categoryCell("tax")).toBe("Domestic");
 
     const counted = (await s.frequency.toneFrequencyCsv([id])).split("\r\n");
     const frequencyCategories = (term: string) =>
-      counted.find((line) => line.startsWith(`Distribution,${term},`))?.split(",")[2];
+      counted.find((line) => line.startsWith(`Distribution,${term},`))?.split(",")[3];
     expect(frequencyCategories("peace")).toBe("Foreign / Treaties");
     expect(frequencyCategories("war")).toBe("Domestic; Foreign");
 

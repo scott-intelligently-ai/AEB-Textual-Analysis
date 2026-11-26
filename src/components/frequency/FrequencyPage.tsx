@@ -92,8 +92,8 @@ export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
               <p>
                 {EQUIVALENCE_MEANING} This table and the downloads keep equivalent terms in their
                 own rows. The counts-by-tone file has one count for each tone, plus a total, for
-                every term in every chosen document. Every download also lists the categories for
-                each term. The CSV files begin with the same explanation.
+                every term in every chosen document. Every download lists each term with its
+                variants, and the categories for each term. The CSV files begin with the same explanation.
               </p>
             </div>
           </div>
@@ -113,8 +113,8 @@ export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
               <span className="mt-2 block">
                 {EQUIVALENCE_MEANING} This table and the downloads keep equivalent terms in their
                 own rows. The counts-by-tone file has one count for each tone, plus a total, for
-                every term in every chosen document. Every download also lists the categories for
-                each term. The CSV files begin with the same explanation.
+                every term in every chosen document. Every download lists each term with its
+                variants, and the categories for each term. The CSV files begin with the same explanation.
               </span>
             </>
           }
