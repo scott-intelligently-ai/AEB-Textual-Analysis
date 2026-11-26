@@ -10,6 +10,8 @@
  * "tax cut" is not also counted as "tax".
  */
 
+import { formatTermWithVariants } from "./variants";
+
 export interface TermPattern {
   id: number;
   text: string;
@@ -180,16 +182,30 @@ export interface FrequencyDocument {
 
 export interface FrequencyTable {
   documents: { id: number; title: string; total: number }[];
-  rows: { termId: number; term: string; categories?: string; counts: number[]; total: number }[];
+  rows: {
+    termId: number;
+    term: string;
+    /** The term, then each variant, separated by slashes. */
+    termWithVariants: string;
+    categories?: string;
+    counts: number[];
+    total: number;
+  }[];
   grandTotal: number;
 }
 
-/** Rows for the counts download: one term per row, with that term's categories. */
+/** Rows for the counts download: one term per row, with its variants and categories. */
 export function frequencyCountsRows(data: FrequencyTable): (string | number)[][] {
   return [
-    ["term", "categories", ...data.documents.map((document) => document.title), "total"],
-    ...data.rows.map((row) => [row.term, row.categories ?? "", ...row.counts, row.total]),
-    ["total", "", ...data.documents.map((document) => document.total), data.grandTotal],
+    ["term", "term_with_variants", "categories", ...data.documents.map((document) => document.title), "total"],
+    ...data.rows.map((row) => [
+      row.term,
+      row.termWithVariants,
+      row.categories ?? "",
+      ...row.counts,
+      row.total,
+    ]),
+    ["total", "", "", ...data.documents.map((document) => document.total), data.grandTotal],
   ];
 }
 
@@ -202,6 +218,7 @@ export function frequencyTable(
   const rows = terms.map((term) => ({
     termId: term.id,
     term: term.text,
+    termWithVariants: formatTermWithVariants(term.text, term.variants),
     counts: documents.map(() => 0),
     total: 0,
   }));

@@ -1,6 +1,7 @@
 import { inArray } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { formatTermCategories } from "../lib/text/categories";
+import { formatTermWithVariants } from "../lib/text/variants";
 import { OCCURRENCE_DOWNLOAD_NOTE, TONE_FREQUENCY_DOWNLOAD_NOTE, csvWithNote } from "../lib/text/explanations";
 import { findOccurrences, frequencyTable, spanKey, type FrequencyTable } from "../lib/text/match";
 import { getDocumentRows } from "./documents";
@@ -66,8 +67,11 @@ export async function occurrencesCsv(documentIds?: number[]): Promise<string> {
   const labels = await categoryLabels(termList);
 
   const rows: (string | number)[][] = [
-    ["document", "term", "categories", "matched_text", "position", "tone", "tone_score", "tone_set_by", "context"],
+    ["document", "term", "term_with_variants", "categories", "matched_text", "position", "tone", "tone_score", "tone_set_by", "context"],
   ];
+  const forms = new Map(
+    termList.map((term) => [term.id, formatTermWithVariants(term.text, term.variants)]),
+  );
   for (const document of documents) {
     for (const occurrence of findOccurrences(document.text, patterns)) {
       const annotation = tagged.get(`${document.id}:${spanKey(occurrence)}`);
@@ -75,6 +79,7 @@ export async function occurrencesCsv(documentIds?: number[]): Promise<string> {
       rows.push([
         document.title,
         terms.get(occurrence.termId) ?? "",
+        forms.get(occurrence.termId) ?? "",
         labels.get(occurrence.termId) ?? "",
         occurrence.text,
         occurrence.start,
@@ -113,7 +118,7 @@ export async function toneFrequencyCsv(documentIds?: number[]): Promise<string> 
 
   const labels = await categoryLabels(termList);
   const rows: (string | number)[][] = [
-    ["document", "term", "categories", ...tones.map((tone) => tone.name), "total"],
+    ["document", "term", "term_with_variants", "categories", ...tones.map((tone) => tone.name), "total"],
   ];
   for (const document of documents) {
     for (const term of termList) {
@@ -121,6 +126,7 @@ export async function toneFrequencyCsv(documentIds?: number[]): Promise<string> 
       rows.push([
         document.title,
         term.text,
+        formatTermWithVariants(term.text, term.variants),
         labels.get(term.id) ?? "",
         ...values,
         values.reduce((sum, count) => sum + count, 0),

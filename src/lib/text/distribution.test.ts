@@ -12,7 +12,7 @@ describe("buildToneDistribution", () => {
     tones,
     terms: [
       { id: 10, text: "peace", equivalenceId: 1 },
-      { id: 11, text: "war", equivalenceId: 1 },
+      { id: 11, text: "war", variants: ["wars"], equivalenceId: 1 },
       { id: 12, text: "tax", equivalenceId: null },
     ],
     equivalences: [{ id: 1, name: "Conflict" }],
@@ -47,14 +47,18 @@ describe("buildToneDistribution", () => {
     expect(result.rows.find((row) => row.label === "peace")?.categories).toBe("Foreign / Treaties");
     expect(result.rows.find((row) => row.label === "war")?.categories).toBe("Domestic; Foreign");
     expect(result.rows.find((row) => row.label === "tax")?.categories).toBe("Domestic");
-    expect(distributionCsv(result)[0]).toEqual([
+    const csv = distributionCsv(result);
+    expect(csv[0]).toEqual([
       "term",
+      "term_with_variants",
       "categories",
       "Negative",
       "Neutral",
       "Positive",
       "total",
     ]);
+    expect(csv.find((row) => row[0] === "war")?.[1]).toBe("war / wars");
+    expect(csv.find((row) => row[0] === "peace")?.[1]).toBe("peace");
   });
 
   it("adds equivalent terms together and leaves the others alone", () => {

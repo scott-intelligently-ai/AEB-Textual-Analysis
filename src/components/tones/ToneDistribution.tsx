@@ -58,7 +58,8 @@ export function ToneDistributionPanel() {
               assigned to it. A term in more than one category is counted in each, so category
               totals can add up to more than the overall total. The downloaded CSV begins with the
               same explanation for the view you have selected. The term and equivalent-terms
-              downloads also list the categories for each term.
+              downloads also list the categories for each term. The term download also lists
+              each term with its variants.
             </p>
           </div>
         </div>
