@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   countOccurrences,
   findOccurrences,
+  frequencyCountsRows,
   frequencyTable,
   normalizeTerm,
   type TermPattern,
@@ -165,6 +166,17 @@ describe("frequencyTable", () => {
         table.documents[d].total,
       );
     });
+  });
+
+  it("puts each term's categories in the counts download", () => {
+    const table = frequencyTable(documents, terms);
+    table.rows[0].categories = "Economy";
+    table.rows[1].categories = "Rights; Speech";
+    const rows = frequencyCountsRows(table);
+    expect(rows[0]).toEqual(["term", "categories", "A", "B", "total"]);
+    expect(rows[1]).toEqual(["tax", "Economy", 2, 1, 3]);
+    expect(rows[2]).toEqual(["freedom", "Rights; Speech", 1, 3, 4]);
+    expect(rows[4]).toEqual(["total", "", 3, 4, 7]);
   });
 
   it("restricts counts to the documents given", () => {

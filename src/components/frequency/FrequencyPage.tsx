@@ -17,6 +17,7 @@ import {
 import { downloadText, fetcher } from "@/lib/client/api";
 import type { DocumentSummary, FrequencyTable } from "@/lib/client/types";
 import { EQUIVALENCE_MEANING, FREQUENCY_DOWNLOAD_NOTE, VARIANT_MEANING, csvWithNote } from "@/lib/text/explanations";
+import { frequencyCountsRows } from "@/lib/text/match";
 
 type Sort = "list" | "total";
 
@@ -43,12 +44,7 @@ export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
   }
 
   function exportCounts(data: FrequencyTable) {
-    const rows: (string | number)[][] = [
-      ["term", ...data.documents.map((d) => d.title), "total"],
-      ...data.rows.map((row) => [row.term, ...row.counts, row.total]),
-      ["total", ...data.documents.map((d) => d.total), data.grandTotal],
-    ];
-    downloadText("term-frequency.csv", csvWithNote(rows, FREQUENCY_DOWNLOAD_NOTE));
+    downloadText("term-frequency.csv", csvWithNote(frequencyCountsRows(data), FREQUENCY_DOWNLOAD_NOTE));
   }
 
   if (documents.error) return <ErrorBlock error={documents.error} />;
@@ -96,7 +92,8 @@ export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
               <p>
                 {EQUIVALENCE_MEANING} This table and the downloads keep equivalent terms in their
                 own rows. The counts-by-tone file has one count for each tone, plus a total, for
-                every term in every chosen document. The CSV files begin with the same explanation.
+                every term in every chosen document. Every download also lists the categories for
+                each term. The CSV files begin with the same explanation.
               </p>
             </div>
           </div>
@@ -116,7 +113,8 @@ export function FrequencyPage({ embedded = false }: { embedded?: boolean }) {
               <span className="mt-2 block">
                 {EQUIVALENCE_MEANING} This table and the downloads keep equivalent terms in their
                 own rows. The counts-by-tone file has one count for each tone, plus a total, for
-                every term in every chosen document. The CSV files begin with the same explanation.
+                every term in every chosen document. Every download also lists the categories for
+                each term. The CSV files begin with the same explanation.
               </span>
             </>
           }

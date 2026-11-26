@@ -16,13 +16,12 @@ import {
   TextInput,
 } from "@/components/ui";
 import { errorMessage, fetcher, send } from "@/lib/client/api";
+import { categoryPath } from "@/lib/text/categories";
 import { EQUIVALENCE_MEANING } from "@/lib/text/explanations";
 import type { Term, TermCategory, TermEquivalence } from "@/lib/client/types";
 
 export function categoryLabel(category: TermCategory, categories: TermCategory[]): string {
-  if (category.parentId === null) return category.name;
-  const parent = categories.find((item) => item.id === category.parentId);
-  return parent ? `${parent.name} / ${category.name}` : category.name;
+  return categoryPath(category, categories);
 }
 
 export function TaxonomyPanel({ terms }: { terms: Term[] }) {

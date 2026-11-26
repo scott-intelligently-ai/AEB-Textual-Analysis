@@ -4,6 +4,8 @@
  * or as one overall total. A term in several categories is counted in each.
  */
 
+import { formatTermCategories } from "./categories";
+
 export type DistributionGroup =
   | "term"
   | "equivalence"
@@ -58,6 +60,8 @@ export interface DistributionDocument {
 export interface DistributionRow {
   id: string;
   label: string;
+  /** Present when the row is a term, or a group of terms. */
+  categories?: string;
   counts: number[];
   total: number;
 }
@@ -117,6 +121,26 @@ export function buildToneDistribution(input: {
     set.add(membership.categoryId);
     assignedTo.set(membership.termId, set);
   }
+  const categoryLabels = new Map<string, string>();
+  const labelsFor = (termId: number) => formatTermCategories(assignedTo.get(termId) ?? [], categories);
+  if (input.group === "term") {
+    for (const term of input.terms) categoryLabels.set(`term:${term.id}`, labelsFor(term.id));
+  } else if (input.group === "equivalence") {
+    const grouped = new Map<number, number[]>();
+    for (const term of input.terms) {
+      if (term.equivalenceId === null) {
+        categoryLabels.set(`term:${term.id}`, labelsFor(term.id));
+        continue;
+      }
+      const ids = grouped.get(term.equivalenceId) ?? [];
+      ids.push(...(assignedTo.get(term.id) ?? []));
+      grouped.set(term.equivalenceId, ids);
+    }
+    for (const [groupId, ids] of grouped) {
+      categoryLabels.set(`equivalence:${groupId}`, formatTermCategories(ids, categories));
+    }
+  }
+
   const termById = new Map(input.terms.map((term) => [term.id, term]));
   const equivalenceById = new Map(input.equivalences.map((group) => [group.id, group]));
   const categoryById = new Map(categories.map((category) => [category.id, category]));
@@ -199,6 +223,7 @@ export function buildToneDistribution(input: {
       return {
         id: bucket.id,
         label: bucket.label,
+        ...(categoryLabels.has(bucket.id) ? { categories: categoryLabels.get(bucket.id) ?? "" } : {}),
         counts,
         total: counts.reduce((sum, count) => sum + count, 0),
       };
@@ -222,8 +247,19 @@ const CSV_HEADERS: Record<DistributionGroup, string> = {
 };
 
 export function distributionCsv(distribution: ToneDistribution): (string | number)[][] {
+  const includeCategories = distribution.group === "term" || distribution.group === "equivalence";
   return [
-    [CSV_HEADERS[distribution.group], ...distribution.tones.map((tone) => tone.name), "total"],
-    ...distribution.rows.map((row) => [row.label, ...row.counts, row.total]),
+    [
+      CSV_HEADERS[distribution.group],
+      ...(includeCategories ? ["categories"] : []),
+      ...distribution.tones.map((tone) => tone.name),
+      "total",
+    ],
+    ...distribution.rows.map((row) => [
+      row.label,
+      ...(includeCategories ? [row.categories ?? ""] : []),
+      ...row.counts,
+      row.total,
+    ]),
   ];
 }

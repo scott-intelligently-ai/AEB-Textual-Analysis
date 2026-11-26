@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildToneDistribution, type DistributionTone } from "./distribution";
+import { buildToneDistribution, distributionCsv, type DistributionTone } from "./distribution";
 
 const tones: DistributionTone[] = [
   { id: 1, name: "Negative", sortOrder: 0 },
@@ -44,6 +44,17 @@ describe("buildToneDistribution", () => {
     const peace = result.rows.find((row) => row.label === "peace");
     expect(peace?.counts).toEqual([0, 0, 1]);
     expect(result.rows.find((row) => row.label === "war")?.total).toBe(2);
+    expect(result.rows.find((row) => row.label === "peace")?.categories).toBe("Foreign / Treaties");
+    expect(result.rows.find((row) => row.label === "war")?.categories).toBe("Domestic; Foreign");
+    expect(result.rows.find((row) => row.label === "tax")?.categories).toBe("Domestic");
+    expect(distributionCsv(result)[0]).toEqual([
+      "term",
+      "categories",
+      "Negative",
+      "Neutral",
+      "Positive",
+      "total",
+    ]);
   });
 
   it("adds equivalent terms together and leaves the others alone", () => {
@@ -51,6 +62,12 @@ describe("buildToneDistribution", () => {
     expect(result.rows.map((row) => row.label)).toEqual(["Conflict", "tax"]);
     expect(result.rows[0].counts).toEqual([2, 0, 1]);
     expect(result.rows[0].total).toBe(3);
+    expect(result.rows.find((row) => row.label === "Conflict")?.categories).toBe(
+      "Domestic; Foreign; Foreign / Treaties",
+    );
+    expect(result.rows.find((row) => row.label === "tax")?.categories).toBe("Domestic");
+    expect(distributionCsv(result)[0][0]).toBe("equivalent_terms");
+    expect(distributionCsv(result)[0][1]).toBe("categories");
   });
 
   it("counts a subcategory toward its category, and a term in two categories twice", () => {
@@ -76,5 +93,6 @@ describe("buildToneDistribution", () => {
     expect(one.rows).toEqual([
       { id: "overall", label: "Overall", counts: [1, 1, 0], total: 2 },
     ]);
+    expect(distributionCsv(one)[0]).toEqual(["scope", "Negative", "Neutral", "Positive", "total"]);
   });
 });
