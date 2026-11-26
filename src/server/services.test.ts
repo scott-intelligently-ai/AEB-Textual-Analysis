@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { asc, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
 type Services = {
@@ -63,16 +65,127 @@ async function tagged(documentId: number): Promise<string[]> {
 }
 
 describe("services", () => {
-  it("seeds the five default tones with Neutral as the default", async () => {
+  it("seeds positive, neutral, and negative, with Neutral as the default", async () => {
     const tones = await s.tones.listTones();
-    expect(tones.map((tone) => tone.name)).toEqual([
+    expect(tones.map((tone) => [tone.name, tone.score, tone.definition])).toEqual(
+      s.db.DEFAULT_TONES.map((tone) => [tone.name, tone.score, tone.definition]),
+    );
+    expect(tones.filter((tone) => tone.isDefault).map((tone) => tone.name)).toEqual(["Neutral"]);
+    const migration = readFileSync("drizzle/0003_default_tone_definitions.sql", "utf8");
+    for (const tone of tones) {
+      expect(tone.definition!.length).toBeLessThanOrEqual(s.tones.TONE_DEFINITION_MAX);
+      expect(migration).toContain(tone.definition);
+    }
+  });
+
+  it("replaces an untouched set of the old five tones and keeps their tags", async () => {
+    const { getDb, schema, seed } = s.db;
+    const db = await getDb();
+    await db.delete(schema.tones);
+    await db.insert(schema.tones).values([
+      { name: "Very negative", color: "#b91c1c", score: -2, isDefault: false, sortOrder: 0 },
+      { name: "Negative", color: "#ea580c", score: -1, isDefault: false, sortOrder: 1 },
+      { name: "Neutral", color: "#52525b", score: 0, isDefault: true, sortOrder: 2 },
+      { name: "Positive", color: "#16a34a", score: 1, isDefault: false, sortOrder: 3 },
+      { name: "Very positive", color: "#047857", score: 2, isDefault: false, sortOrder: 4 },
+    ]);
+    await db
+      .update(schema.tones)
+      .set({ definition: "Kept." })
+      .where(eq(schema.tones.name, "Neutral"));
+    const before = await s.tones.listTones();
+    const veryPositive = before.find((tone) => tone.name === "Very positive")!;
+    const veryNegative = before.find((tone) => tone.name === "Very negative")!;
+    const positiveId = before.find((tone) => tone.name === "Positive")!.id;
+    const negativeId = before.find((tone) => tone.name === "Negative")!.id;
+    const documentId = await addDocument("Legacy tones", "Peace and war.");
+    const [term] = await db
+      .insert(schema.terms)
+      .values({ text: "legacycheck" })
+      .returning({ id: schema.terms.id });
+    await db.insert(schema.annotations).values([
+      {
+        documentId,
+        termId: term.id,
+        start: 0,
+        end: 5,
+        toneId: veryPositive.id,
+        source: "user",
+      },
+      {
+        documentId,
+        termId: term.id,
+        start: 10,
+        end: 13,
+        toneId: veryNegative.id,
+        source: "user",
+      },
+    ]);
+
+    await seed(db);
+
+    const tones = await s.tones.listTones();
+    expect(tones.map((tone) => tone.name)).toEqual(["Positive", "Neutral", "Negative"]);
+    expect(tones.find((tone) => tone.isDefault)?.name).toBe("Neutral");
+    expect(tones.find((tone) => tone.name === "Neutral")?.definition).toBe("Kept.");
+    expect(tones.find((tone) => tone.name === "Positive")?.definition).toBe(
+      s.db.DEFAULT_TONES.find((tone) => tone.name === "Positive")?.definition,
+    );
+    expect(tones.find((tone) => tone.name === "Negative")?.definition).toBe(
+      s.db.DEFAULT_TONES.find((tone) => tone.name === "Negative")?.definition,
+    );
+    const tags = await db
+      .select({ toneId: schema.annotations.toneId })
+      .from(schema.annotations)
+      .orderBy(asc(schema.annotations.start));
+    expect(tags.map((tag) => tag.toneId)).toEqual([positiveId, negativeId]);
+
+    await db.delete(schema.documents).where(eq(schema.documents.id, documentId));
+    await db.delete(schema.terms).where(eq(schema.terms.id, term.id));
+  });
+
+  it("leaves a tone list alone once someone has added to the original five", async () => {
+    const { getDb, schema, seed } = s.db;
+    const db = await getDb();
+    await db.delete(schema.tones);
+    await db.insert(schema.tones).values([
+      { name: "Very negative", color: "#b91c1c", score: -2, isDefault: false, sortOrder: 0 },
+      { name: "Negative", color: "#ea580c", score: -1, isDefault: false, sortOrder: 1 },
+      { name: "Neutral", color: "#52525b", score: 0, isDefault: true, sortOrder: 2 },
+      { name: "Positive", color: "#16a34a", score: 1, isDefault: false, sortOrder: 3 },
+      { name: "Very positive", color: "#047857", score: 2, isDefault: false, sortOrder: 4 },
+      { name: "Mixed", color: "#7c3aed", score: 0, isDefault: false, sortOrder: 5 },
+    ]);
+    await seed(db);
+    const leftAlone = await s.tones.listTones();
+    expect(leftAlone.map((tone) => tone.name)).toEqual([
       "Very negative",
       "Negative",
       "Neutral",
       "Positive",
       "Very positive",
+      "Mixed",
     ]);
-    expect(tones.filter((tone) => tone.isDefault).map((tone) => tone.name)).toEqual(["Neutral"]);
+    expect(leftAlone.find((tone) => tone.name === "Positive")?.definition ?? null).toBeNull();
+    await db.delete(schema.tones);
+    await seed(db);
+    expect((await s.tones.listTones()).map((tone) => tone.name)).toEqual([
+      "Positive",
+      "Neutral",
+      "Negative",
+    ]);
+  });
+
+  it("stores a tone definition and clears it when the field is emptied", async () => {
+    const id = await toneId("Positive");
+    const saved = await s.tones.updateTone(id, {
+      definition: "  Approval of what the term refers to.  ",
+    });
+    expect(saved.definition).toBe("Approval of what the term refers to.");
+    const cleared = await s.tones.updateTone(id, { definition: "   " });
+    expect(cleared.definition).toBeNull();
+    await s.db.seed(await s.db.getDb());
+    expect((await s.tones.listTones()).find((tone) => tone.id === id)?.definition).toBeNull();
   });
 
   it("rejects a term whose wording is already taken", async () => {
@@ -105,9 +218,9 @@ describe("services", () => {
     const a = await addDocument("Part A", "We want peace. We reject war.");
     const b = await addDocument("Part B", "  The wars must end, and peace must follow.  ");
     await tag(a, "peace", 0, "Positive");
-    await tag(a, "war", 0, "Very negative");
-    await tag(b, "wars", 0, "Negative");
-    await tag(b, "peace", 0, "Very positive");
+    await tag(a, "war", 0, "Negative");
+    await tag(b, "wars", 0, "Neutral");
+    await tag(b, "peace", 0, "Positive");
 
     const combined = (await s.documents.combineDocuments([a, b], "Whole speech")).id;
     expect((await s.documents.listDocuments()).map((document) => document.title)).toEqual([
@@ -118,9 +231,9 @@ describe("services", () => {
     );
     expect(await tagged(combined)).toEqual([
       "peace=Positive",
-      "war=Very negative",
-      "wars=Negative",
-      "peace=Very positive",
+      "war=Negative",
+      "wars=Neutral",
+      "peace=Positive",
     ]);
 
     const text = (await s.documents.getDocumentRow(combined)).text;
@@ -135,8 +248,8 @@ describe("services", () => {
     expect(await s.documents.updateDocumentText(combined, edited)).toEqual({ cleared: 1 });
     expect(await tagged(combined)).toEqual([
       "peace=Positive",
-      "wars=Negative",
-      "peace=Very positive",
+      "wars=Neutral",
+      "peace=Positive",
     ]);
 
     const offset = (await s.documents.getDocumentRow(combined)).text.indexOf("The wars");
@@ -147,7 +260,7 @@ describe("services", () => {
       "The wars must end, and peace must follow.",
     );
     expect(await tagged(split.first)).toEqual(["peace=Positive"]);
-    expect(await tagged(split.second)).toEqual(["wars=Negative", "peace=Very positive"]);
+    expect(await tagged(split.second)).toEqual(["wars=Neutral", "peace=Positive"]);
   });
 
   it("counts terms in all documents or only the selected ones", async () => {
@@ -193,10 +306,10 @@ describe("services", () => {
     const row = (document: string, term: string) =>
       lines.find((line) => line.startsWith(`${document},${term},`));
     const numbers = (line: string | undefined) => line?.split(",").slice(2);
-    expect(numbers(row("Tone counts", "peace"))).toEqual(["0", "0", "1", "1", "0", "2"]);
-    expect(numbers(row("Tone counts", "war"))).toEqual(["0", "1", "0", "0", "0", "1"]);
-    expect(numbers(row("Tone counts again", "peace"))).toEqual(["0", "0", "1", "0", "0", "1"]);
-    expect(numbers(row("Tone counts again", "war"))).toEqual(["0", "0", "0", "0", "0", "0"]);
+    expect(numbers(row("Tone counts", "peace"))).toEqual(["1", "1", "0", "2"]);
+    expect(numbers(row("Tone counts", "war"))).toEqual(["0", "0", "1", "1"]);
+    expect(numbers(row("Tone counts again", "peace"))).toEqual(["0", "1", "0", "1"]);
+    expect(numbers(row("Tone counts again", "war"))).toEqual(["0", "0", "0", "0"]);
     await s.documents.deleteDocument(first);
     await s.documents.deleteDocument(second);
   });
@@ -237,7 +350,7 @@ describe("services", () => {
       termId: peace,
       start: 11,
       end: 16,
-      toneId: await toneId("Very positive"),
+      toneId: await toneId("Neutral"),
       source: "ai",
       reason: "Emphatic repetition.",
     });

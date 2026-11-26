@@ -1,5 +1,5 @@
 {
-  "id": "2c02d8a1-d13f-4403-8a73-de1f6a0b3b43",
+  "id": "66172c91-6a55-4daa-8ae4-cc868c48e14d",
   "prevId": "3935e32b-442a-4c63-b3a8-8c6105e4101b",
   "version": "7",
   "dialect": "postgresql",
@@ -651,13 +651,6 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
-        "case_sensitive": {
-          "name": "case_sensitive",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "equivalence_id": {
           "name": "equivalence_id",
           "type": "integer",
@@ -735,6 +728,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "definition": {
+          "name": "definition",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

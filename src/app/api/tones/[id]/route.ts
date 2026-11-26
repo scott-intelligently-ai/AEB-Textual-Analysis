@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { parseBody, parseId, route } from "@/server/http";
-import { deleteTone, updateTone } from "@/server/tones";
+import { deleteTone, TONE_DEFINITION_MAX, updateTone } from "@/server/tones";
 
 type Params = { id: string };
 
@@ -12,6 +12,11 @@ const body = z.object({
     .optional(),
   score: z.number().finite().optional(),
   isDefault: z.boolean().optional(),
+  definition: z
+    .string()
+    .max(TONE_DEFINITION_MAX, `A tone definition can be at most ${TONE_DEFINITION_MAX} characters.`)
+    .nullable()
+    .optional(),
 });
 
 export const PATCH = route<Params>(async (request, { id }) =>
