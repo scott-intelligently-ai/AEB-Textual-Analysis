@@ -41,4 +41,11 @@ describe("databaseUrlProblem", () => {
     expect(postgresOptions(POOLER, 4).ssl).toBe("require");
     expect(postgresOptions("postgresql://postgres:secret@localhost:5432/postgres", 1).ssl).toBeUndefined();
   });
+
+  it("sends one query at a time through the transaction pooler", () => {
+    expect(postgresOptions(POOLER, 1).max_pipeline).toBe(1);
+    expect(
+      postgresOptions("postgresql://postgres:secret@localhost:5432/postgres", 1).max_pipeline,
+    ).toBeUndefined();
+  });
 });

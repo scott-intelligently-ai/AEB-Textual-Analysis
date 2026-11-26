@@ -53,11 +53,15 @@ export function postgresOptions(url: string, max: number): Options {
   if (problem) throw new Error(problem);
   const host = new URL(url).hostname;
   const supabase = host.endsWith(".supabase.co") || host.includes("supabase.com");
+  const transactionPooler = host.includes("pooler.supabase.com");
   return {
     prepare: false,
     max,
     idle_timeout: 20,
     connect_timeout: 15,
+    // Supabase's transaction pooler answers pipelined queries out of order,
+    // so a timestamp column can arrive as a missing or unrelated value.
+    ...(transactionPooler ? { max_pipeline: 1 } : {}),
     ...(supabase ? { ssl: "require" as const } : {}),
   };
 }
