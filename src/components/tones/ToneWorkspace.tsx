@@ -105,7 +105,7 @@ export function ToneWorkspace() {
               </label>
             ) : null}
           </div>
-          <DocumentTones id={current.id} terms={terms} tones={tones} />
+          <DocumentTones id={current.id} terms={terms} tones={tones} documentCount={list.length} />
         </>
       ) : null}
 
@@ -124,10 +124,12 @@ function DocumentTones({
   id,
   terms,
   tones,
+  documentCount,
 }: {
   id: number;
   terms: ReturnType<typeof useSWR<Term[]>>;
   tones: ReturnType<typeof useSWR<Tone[]>>;
+  documentCount: number;
 }) {
   const document = useSWR<DocumentDetail>(`/api/documents/${id}`, fetcher);
   const annotations = useSWR<Annotation[]>(`/api/documents/${id}/annotations`, fetcher);
@@ -142,6 +144,7 @@ function DocumentTones({
       tones={tones.data}
       annotations={annotations.data}
       mutateAnnotations={annotations.mutate}
+      documentCount={documentCount}
     />
   );
 }

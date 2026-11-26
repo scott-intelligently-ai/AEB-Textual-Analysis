@@ -12,7 +12,7 @@ import {
   XIcon,
 } from "@/components/icons";
 import { MarkedText } from "@/components/MarkedText";
-import { Badge, Button, Card, EmptyState, IconButton, Notice, TextInput, cx } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, IconButton, Modal, Notice, TextInput, cx } from "@/components/ui";
 import { send } from "@/lib/client/api";
 import { isTyping, modalOpen } from "@/lib/client/dom";
 import type { AiToneResult, Annotation, DocumentDetail, Term, Tone } from "@/lib/client/types";
@@ -27,6 +27,7 @@ interface Props {
   tones: Tone[];
   annotations: Annotation[];
   mutateAnnotations: KeyedMutator<Annotation[]>;
+  documentCount: number;
 }
 
 interface Selection {
@@ -35,7 +36,14 @@ interface Selection {
   left: number;
 }
 
-export function ToneView({ document, terms, tones, annotations, mutateAnnotations }: Props) {
+export function ToneView({
+  document,
+  terms,
+  tones,
+  annotations,
+  mutateAnnotations,
+  documentCount,
+}: Props) {
   const { notify, notifyError, confirm } = useFeedback();
   const container = useRef<HTMLDivElement>(null);
   const popover = useRef<HTMLDivElement>(null);
@@ -46,6 +54,8 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
   const [termSort, setTermSort] = useState<TermSort>("count");
   const [asking, setAsking] = useState<string | null>(null);
   const [bulk, setBulk] = useState<"suggest" | "confirm" | "discard" | null>(null);
+  const [suggestChoice, setSuggestChoice] = useState(false);
+  const [suggestingAll, setSuggestingAll] = useState(false);
   const [lastRun, setLastRun] = useState<AiToneResult | null>(null);
 
   const occurrences = useMemo(() => findOccurrences(document.text, terms), [document.text, terms]);
@@ -187,17 +197,22 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
     }
   }
 
-  async function suggestAll() {
+  async function suggestAll(scope: "document" | "all") {
+    setSuggestChoice(false);
     setBulk("suggest");
+    setSuggestingAll(scope === "all");
     setLastRun(null);
     try {
       setLastRun(
-        await send<AiToneResult>("POST", `/api/documents/${document.id}/ai-tone`, {}),
+        scope === "all"
+          ? await send<AiToneResult>("POST", "/api/documents/ai-tones", {})
+          : await send<AiToneResult>("POST", `/api/documents/${document.id}/ai-tone`, {}),
       );
     } catch (error) {
       notifyError(error);
     } finally {
       setBulk(null);
+      setSuggestingAll(false);
     }
   }
 
@@ -333,9 +348,9 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <div>
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <Button variant="primary" busy={bulk === "suggest"} onClick={suggestAll}>
+          <Button variant="primary" busy={bulk === "suggest"} onClick={() => setSuggestChoice(true)}>
             {bulk === "suggest" ? (
-              "Asking Jev…"
+              suggestingAll ? "Asking Jev about every document…" : "Asking Jev…"
             ) : (
               <>
                 <SparklesIcon /> Suggest tones with Jev
@@ -361,6 +376,30 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
           </Button>
         </div>
 
+        {suggestChoice ? (
+          <Modal
+            title="Suggest tones with Jev"
+            onClose={() => setSuggestChoice(false)}
+            footer={
+              <>
+                <Button onClick={() => setSuggestChoice(false)}>Cancel</Button>
+                <Button variant="primary" onClick={() => void suggestAll("document")}>
+                  This document
+                </Button>
+                <Button onClick={() => void suggestAll("all")}>
+                  {documentCount === 1 ? "All documents" : `All ${documentCount} documents`}
+                </Button>
+              </>
+            }
+          >
+            <p>
+              Jev suggests a tone for each occurrence you have not already set. Run it on this
+              document, or on every document. Tones you set yourself are left alone. A download
+              counts a Jev suggestion as that tone even when you have not confirmed it.
+            </p>
+          </Modal>
+        ) : null}
+
         {occurrences.length === 0 ? (
           <div className="mb-3">
             <Notice>None of the terms on your list appear in this document.</Notice>
@@ -373,7 +412,11 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
               <div className="flex items-start gap-3">
                 <p className="flex-1">
                   Jev suggested a tone for {lastRun.suggested} occurrence
-                  {lastRun.suggested === 1 ? "" : "s"}.
+                  {lastRun.suggested === 1 ? "" : "s"}
+                  {lastRun.documents
+                    ? ` across ${lastRun.documents} document${lastRun.documents === 1 ? "" : "s"}`
+                    : ""}
+                  .
                   {lastRun.skipped > 0
                     ? ` ${lastRun.skipped} that you had already set ${lastRun.skipped === 1 ? "was" : "were"} left alone.`
                     : ""}
@@ -381,7 +424,9 @@ export function ToneView({ document, terms, tones, annotations, mutateAnnotation
                     ? ` ${lastRun.missed} ${lastRun.missed === 1 ? "was" : "were"} left unchanged because Jev was not confident enough; run it again to retry.`
                     : ""}
                   {lastRun.suggested > 0
-                    ? " Suggestions have a dashed outline. Check them, then confirm them all or change individual ones."
+                    ? lastRun.documents
+                      ? " Suggestions in this document have a dashed outline. Confirm and discard here apply to this document."
+                      : " Suggestions have a dashed outline. Check them, then confirm them all or change individual ones."
                     : ""}
                 </p>
                 <button

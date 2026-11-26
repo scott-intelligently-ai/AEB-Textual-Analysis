@@ -80,7 +80,7 @@ export async function occurrencesCsv(documentIds?: number[]): Promise<string> {
         occurrence.start,
         tone?.name ?? "",
         tone?.score ?? "",
-        annotation ? (annotation.source === "ai" ? "ai_suggestion" : "user") : "default",
+        annotation ? "user" : "default",
         snippet(document.text, occurrence.start, occurrence.end),
       ]);
     }

@@ -294,6 +294,50 @@ describe("services", () => {
     await s.documents.deleteDocument(id);
   });
 
+  it("counts an unconfirmed Jev suggestion as that tone in a download", async () => {
+    const { getDb, schema } = s.db;
+    const id = await addDocument("Jev export", "Peace now.");
+    const peace = (await s.terms.listTerms()).find((term) => term.text === "peace")!;
+    await (await getDb()).insert(schema.annotations).values({
+      documentId: id,
+      termId: peace.id,
+      start: 0,
+      end: 5,
+      toneId: await toneId("Negative"),
+      source: "ai",
+      reason: "A warning.",
+    });
+    const occurrence = (await s.frequency.occurrencesCsv([id])).trim().split("\r\n")[2].split(",");
+    expect(occurrence[5]).toBe("Negative");
+    expect(occurrence[7]).toBe("user");
+    const frequency = (await s.frequency.toneFrequencyCsv([id])).trim().split("\r\n");
+    const header = frequency[1].split(",");
+    const row = frequency.find((line) => line.startsWith("Jev export,peace,"))!.split(",");
+    expect(row[header.indexOf("Negative")]).toBe("1");
+    expect(row[header.indexOf("Neutral")]).toBe("0");
+    await s.documents.deleteDocument(id);
+  });
+
+  it("asks Jev about every document when that scope is chosen", async () => {
+    const first = await addDocument("Jev scope one", "Peace.");
+    const second = await addDocument("Jev scope two", "War.");
+    const ids = (await s.documents.listDocuments()).map((document) => document.id);
+    const seen: number[] = [];
+    const result = await s.annotations.suggestAllDocumentTones(async (documentId) => {
+      seen.push(documentId);
+      return { suggested: 1, skipped: 2, missed: 3 };
+    });
+    expect(seen).toEqual(ids);
+    expect(result).toEqual({
+      suggested: ids.length,
+      skipped: ids.length * 2,
+      missed: ids.length * 3,
+      documents: ids.length,
+    });
+    await s.documents.deleteDocument(first);
+    await s.documents.deleteDocument(second);
+  });
+
   it("exports one count per tone, plus a total, for each term in each document", async () => {
     const first = await addDocument("Tone counts", "Peace, peace, and wars.");
     const second = await addDocument("Tone counts again", "No peace here.");

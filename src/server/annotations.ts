@@ -3,7 +3,7 @@ import { getDb, schema } from "../db";
 import { suggestTones } from "../lib/ai/tone";
 import type { Span } from "../lib/text/documents";
 import { findOccurrences, spanKey, type Occurrence } from "../lib/text/match";
-import { getDocumentRow } from "./documents";
+import { getDocumentRow, getDocumentRows } from "./documents";
 import { HttpError, badRequest } from "./http";
 import { getSettings } from "./settings";
 import { termPatterns } from "./terms";
@@ -113,6 +113,8 @@ export interface AiToneResult {
   skipped: number;
   /** Occurrences the model gave no usable answer for. */
   missed: number;
+  /** Set when the run covered every document. */
+  documents?: number;
 }
 
 /**
@@ -184,4 +186,22 @@ export async function suggestDocumentTones(
     suggested += 1;
   }
   return { suggested, skipped, missed };
+}
+
+/**
+ * Asks Jev about every document. Each document follows the same rules as a
+ * single-document run: tones the user set are left alone.
+ */
+export async function suggestAllDocumentTones(
+  suggest: (documentId: number) => Promise<AiToneResult> = suggestDocumentTones,
+): Promise<AiToneResult> {
+  const documents = await getDocumentRows();
+  const total: AiToneResult = { suggested: 0, skipped: 0, missed: 0, documents: documents.length };
+  for (const document of documents) {
+    const result = await suggest(document.id);
+    total.suggested += result.suggested;
+    total.skipped += result.skipped;
+    total.missed += result.missed;
+  }
+  return total;
 }
