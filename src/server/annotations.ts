@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../db";
-import { suggestTones } from "../lib/ai/tone";
+import { suggestTones, takeToneBatch } from "../lib/ai/tone";
 import type { Span } from "../lib/text/documents";
 import { findOccurrences, spanKey, type Occurrence } from "../lib/text/match";
 import { getDocumentRow, getDocumentRows } from "./documents";
@@ -115,17 +115,24 @@ export interface AiToneResult {
   missed: number;
   /** Set when the run covered every document. */
   documents?: number;
+  /** Occurrences still to judge. Zero means this response finished its document. */
+  remaining?: number;
+  /** Pass back as `after` to judge the next batch of this document. */
+  after?: number;
 }
 
 /**
  * Asks Jev for tones. With a span, only that occurrence is judged (and an
  * existing tag on it is replaced, since the user asked). Without one, every
- * occurrence the user has not tagged is judged. An occurrence Jev is not
- * confident about is left as it is.
+ * occurrence the user has not tagged is judged. A whole document is judged a
+ * few Jev calls at a time so the request finishes before the host stops it.
+ * Pass `after` from the previous response to continue. An occurrence Jev is
+ * not confident about is left as it is.
  */
 export async function suggestDocumentTones(
   documentId: number,
   span?: Span,
+  after?: number,
 ): Promise<AiToneResult> {
   const document = await getDocumentRow(documentId);
   const tones = await listTones();
@@ -135,6 +142,8 @@ export async function suggestDocumentTones(
 
   let targets: Occurrence[];
   let skipped = 0;
+  let remaining = 0;
+  let nextAfter: number | undefined;
   if (span) {
     targets = [await occurrenceAt(document.text, span)];
   } else {
@@ -143,10 +152,15 @@ export async function suggestDocumentTones(
         .filter((annotation) => annotation.source === "user")
         .map(spanKey),
     );
-    targets = occurrences.filter((occurrence) => !userSet.has(spanKey(occurrence)));
-    skipped = occurrences.length - targets.length;
+    const pending = occurrences.filter((occurrence) => !userSet.has(spanKey(occurrence)));
+    const continued = after === undefined ? pending : pending.filter((occurrence) => occurrence.start > after);
+    skipped = after === undefined ? occurrences.length - pending.length : 0;
+    const batch = takeToneBatch(document.text, continued);
+    targets = batch.batch;
+    remaining = batch.remaining;
+    nextAfter = batch.after;
   }
-  if (targets.length === 0) return { suggested: 0, skipped, missed: 0 };
+  if (targets.length === 0) return { suggested: 0, skipped, missed: 0, remaining };
 
   const { suggestions, missed } = await suggestTones({
     text: document.text,
@@ -185,7 +199,12 @@ export async function suggestDocumentTones(
     await upsert(documentId, occurrence, suggestion.toneId, "ai", suggestion.reason || null);
     suggested += 1;
   }
-  return { suggested, skipped, missed };
+  return {
+    suggested,
+    skipped,
+    missed,
+    ...(span ? {} : { remaining, ...(remaining > 0 && nextAfter !== undefined ? { after: nextAfter } : {}) }),
+  };
 }
 
 /**
@@ -193,15 +212,20 @@ export async function suggestDocumentTones(
  * single-document run: tones the user set are left alone.
  */
 export async function suggestAllDocumentTones(
-  suggest: (documentId: number) => Promise<AiToneResult> = suggestDocumentTones,
+  suggest: (documentId: number, span?: Span, after?: number) => Promise<AiToneResult> = suggestDocumentTones,
 ): Promise<AiToneResult> {
   const documents = await getDocumentRows();
   const total: AiToneResult = { suggested: 0, skipped: 0, missed: 0, documents: documents.length };
   for (const document of documents) {
-    const result = await suggest(document.id);
-    total.suggested += result.suggested;
-    total.skipped += result.skipped;
-    total.missed += result.missed;
+    let after: number | undefined;
+    for (;;) {
+      const result = await suggest(document.id, undefined, after);
+      total.suggested += result.suggested;
+      total.skipped += result.skipped;
+      total.missed += result.missed;
+      if (!result.remaining || result.after === undefined || result.after === after) break;
+      after = result.after;
+    }
   }
   return total;
 }

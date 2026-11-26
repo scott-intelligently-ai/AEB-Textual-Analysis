@@ -4,6 +4,7 @@ import {
   occurrenceInstructions,
   settledToneId,
   suggestTones,
+  takeToneBatch,
   TONE_SETTLED_AT,
   toneCriteria,
   type ToneOption,
@@ -36,6 +37,22 @@ describe("settledToneId", () => {
     expect(settledToneId({ choice: "Positive" }, tones)).toBeNull();
     expect(settledToneId(answer("Mixed", 0.9), tones)).toBeNull();
     expect(settledToneId({ choice: "Positive", probabilities: { Positive: "high" } }, tones)).toBeNull();
+  });
+});
+
+describe("takeToneBatch", () => {
+  it("stops after a few Jev calls and continues after the last occurrence", () => {
+    const text = "x".repeat(200_000);
+    const targets = Array.from({ length: 20 }, (_, index) => ({
+      start: index * 10_000,
+      end: index * 10_000 + 2,
+    }));
+    const first = takeToneBatch(text, targets, 8);
+    expect(first.batch).toHaveLength(8);
+    expect(first.remaining).toBe(12);
+    expect(first.after).toBe(70_000);
+    const rest = targets.filter((target) => first.after !== undefined && target.start > first.after);
+    expect(takeToneBatch(text, rest, 8).batch).toHaveLength(8);
   });
 });
 
