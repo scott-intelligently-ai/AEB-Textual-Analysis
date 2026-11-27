@@ -313,7 +313,7 @@ describe("services", () => {
       "Valence",
       "Document",
     ]);
-    const own = [];
+    const own: unknown[][] = [];
     for (let row = 2; row <= sheet!.rowCount; row += 1) {
       const line = values(row);
       if (line[5] === "Valence sheet") own.push(line);
@@ -350,7 +350,7 @@ describe("services", () => {
     const workbook = new Workbook();
     await workbook.xlsx.load((await s.frequency.valenceXlsx()).buffer);
     const sheet = workbook.getWorksheet("Valence");
-    const match = [];
+    const match: unknown[][] = [];
     sheet?.eachRow((excelRow, number) => {
       if (number === 1) return;
       if (excelRow.getCell(6).value === "Jev export") {
