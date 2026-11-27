@@ -139,7 +139,7 @@ export async function toneFrequencyCsv(documentIds?: number[]): Promise<string> 
 
 /**
  * One worksheet per document. Each row is a term that appears at least once,
- * with its variants, its category, and the sum of the tone on every appearance.
+ * with its frequency, category, summed tone, and the document title.
  */
 export async function valenceXlsx(): Promise<Uint8Array<ArrayBuffer>> {
   const { documents, termList, patterns, toneById, fallback, tagged } = await markedOccurrences();

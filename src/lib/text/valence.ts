@@ -27,8 +27,10 @@ export interface ValenceOccurrence {
 export interface ValenceRow {
   term: string;
   termWithVariants: string;
+  frequency: number;
   category: string;
   valence: number;
+  document: string;
 }
 
 export interface ValenceSheet {
@@ -40,7 +42,7 @@ export interface ValenceSheet {
 
 const SHEET_NAME_LIMIT = 31;
 const ILLEGAL_SHEET_CHARS = /[:\\/?*[\]]/g;
-const HEADERS = ["Term", "Term with variants", "Category", "Valence"] as const;
+const HEADERS = ["Term", "Term with variants", "Frequency", "Category", "Valence", "Document"] as const;
 
 /**
  * A worksheet name Excel will accept: at most 31 characters, none of : \ / ? * [ ],
@@ -74,7 +76,7 @@ function categoryKey(category: string): string {
 
 /**
  * One sheet per document that contains at least one term. Rows keep only terms
- * with a positive frequency, sorted by category and then by frequency.
+ * with a positive frequency, sorted by category and then by frequency, highest first.
  */
 export function valenceSheets(input: {
   documents: readonly ValenceDocument[];
@@ -95,16 +97,17 @@ export function valenceSheets(input: {
   const used = new Set<string>();
   const sheets: ValenceSheet[] = [];
   for (const document of input.documents) {
-    const rows: (ValenceRow & { frequency: number })[] = [];
+    const rows: ValenceRow[] = [];
     for (const term of input.terms) {
       const total = totals.get(`${document.id}:${term.id}`);
       if (!total || total.frequency <= 0) continue;
       rows.push({
         term: term.text,
         termWithVariants: formatTermWithVariants(term.text, term.variants),
+        frequency: total.frequency,
         category: term.category,
         valence: total.valence,
-        frequency: total.frequency,
+        document: document.title,
       });
     }
     if (rows.length === 0) continue;
@@ -121,12 +124,7 @@ export function valenceSheets(input: {
       documentId: document.id,
       title: document.title,
       sheetName: excelSheetName(document.title, used),
-      rows: rows.map((row) => ({
-        term: row.term,
-        termWithVariants: row.termWithVariants,
-        category: row.category,
-        valence: row.valence,
-      })),
+      rows,
     });
   }
   return sheets;
@@ -144,12 +142,21 @@ export async function valenceWorkbookBytes(sheets: readonly ValenceSheet[]): Pro
     worksheet.addRow([...HEADERS]);
     worksheet.getRow(1).font = { bold: true };
     for (const row of sheet.rows) {
-      worksheet.addRow([row.term, row.termWithVariants, row.category, row.valence]);
+      worksheet.addRow([
+        row.term,
+        row.termWithVariants,
+        row.frequency,
+        row.category,
+        row.valence,
+        row.document,
+      ]);
     }
     worksheet.getColumn(1).width = 28;
     worksheet.getColumn(2).width = 48;
-    worksheet.getColumn(3).width = 32;
-    worksheet.getColumn(4).width = 12;
+    worksheet.getColumn(3).width = 12;
+    worksheet.getColumn(4).width = 32;
+    worksheet.getColumn(5).width = 12;
+    worksheet.getColumn(6).width = 36;
   }
   return copyBytes(await workbook.xlsx.writeBuffer());
 }

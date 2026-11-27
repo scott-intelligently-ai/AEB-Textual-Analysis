@@ -38,8 +38,10 @@ describe("valenceSheets", () => {
       {
         term: "war",
         termWithVariants: "war / wars",
+        frequency: 3,
         category: "Conflict",
         valence: 0,
+        document: "Speech A",
       },
     ]);
   });
@@ -75,15 +77,38 @@ describe("valenceSheets", () => {
     });
 
     expect(sheets[0].rows).toEqual([
-      { term: "war", termWithVariants: "war / wars", category: "Conflict", valence: -1 },
-      { term: "tax", termWithVariants: "tax", category: "Domestic", valence: 2 },
+      {
+        term: "war",
+        termWithVariants: "war / wars",
+        frequency: 2,
+        category: "Conflict",
+        valence: -1,
+        document: "Speech A",
+      },
+      {
+        term: "tax",
+        termWithVariants: "tax",
+        frequency: 4,
+        category: "Domestic",
+        valence: 2,
+        document: "Speech A",
+      },
       {
         term: "peace",
         termWithVariants: "peace / peaceful",
+        frequency: 1,
         category: "Foreign / Treaties",
         valence: 1,
+        document: "Speech A",
       },
-      { term: "hope", termWithVariants: "hope", category: "", valence: 5 },
+      {
+        term: "hope",
+        termWithVariants: "hope",
+        frequency: 5,
+        category: "",
+        valence: 5,
+        document: "Speech A",
+      },
     ]);
   });
 
@@ -122,7 +147,7 @@ describe("excelSheetName", () => {
 });
 
 describe("valenceWorkbookBytes", () => {
-  it("writes one worksheet per document, with the four columns", async () => {
+  it("writes one worksheet per document, with frequency, category, valence, and the title", async () => {
     const sheets = valenceSheets({
       documents,
       terms,
@@ -138,13 +163,22 @@ describe("valenceWorkbookBytes", () => {
 
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Speech A", "Speech B"]);
     const first = workbook.worksheets[0];
-    expect(rowValues(first, 1)).toEqual(["Term", "Term with variants", "Category", "Valence"]);
-    expect(rowValues(first, 2)).toEqual(["war", "war / wars", "Conflict", -1]);
+    expect(rowValues(first, 1)).toEqual([
+      "Term",
+      "Term with variants",
+      "Frequency",
+      "Category",
+      "Valence",
+      "Document",
+    ]);
+    expect(rowValues(first, 2)).toEqual(["war", "war / wars", 1, "Conflict", -1, "Speech A"]);
     expect(rowValues(workbook.worksheets[1], 2)).toEqual([
       "peace",
       "peace / peaceful",
+      2,
       "Foreign / Treaties",
       2,
+      "Speech B",
     ]);
   });
 
@@ -156,13 +190,15 @@ describe("valenceWorkbookBytes", () => {
     expect(rowValues(workbook.worksheets[0], 1)).toEqual([
       "Term",
       "Term with variants",
+      "Frequency",
       "Category",
       "Valence",
+      "Document",
     ]);
   });
 });
 
 function rowValues(sheet: Workbook["worksheets"][number], rowNumber: number): unknown[] {
   const row = sheet.getRow(rowNumber);
-  return [1, 2, 3, 4].map((column) => row.getCell(column).value);
+  return [1, 2, 3, 4, 5, 6].map((column) => row.getCell(column).value);
 }

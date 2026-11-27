@@ -18,10 +18,11 @@ export default function Page() {
         </a>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-600">
           An Excel workbook with one sheet for each document that contains at least one term.
-          Each row is a term that appears in that document, with its variants, its category, and
-          its valence. Valence adds 1 for each positive tone, 0 for each neutral tone, and −1 for
-          each negative tone, across every appearance of the term or a variant. Within a sheet,
-          terms are sorted by category, then by how often they appear.
+          Each row is a term that appears in that document: the term, its variants, how often it
+          appears, its category, its valence, and the document title. Valence adds 1 for each
+          positive tone, 0 for each neutral tone, and −1 for each negative tone, across every
+          appearance of the term or a variant. Within a sheet, terms are sorted by category, then
+          by frequency from highest to lowest.
         </p>
       </Card>
     </>

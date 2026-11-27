@@ -303,10 +303,18 @@ describe("services", () => {
     const bytes = await s.frequency.valenceXlsx();
     await workbook.xlsx.load(bytes.buffer);
     const sheet = workbook.getWorksheet("Valence sheet");
-    const values = (row: number) => [1, 2, 3, 4].map((column) => sheet!.getRow(row).getCell(column).value);
-    expect(values(1)).toEqual(["Term", "Term with variants", "Category", "Valence"]);
-    expect(values(2)).toEqual(["peace", "peace", "", 1]);
-    expect(values(3)).toEqual(["war", "war / wars", "", -1]);
+    const values = (row: number) =>
+      [1, 2, 3, 4, 5, 6].map((column) => sheet!.getRow(row).getCell(column).value);
+    expect(values(1)).toEqual([
+      "Term",
+      "Term with variants",
+      "Frequency",
+      "Category",
+      "Valence",
+      "Document",
+    ]);
+    expect(values(2)).toEqual(["peace", "peace", 2, "", 1, "Valence sheet"]);
+    expect(values(3)).toEqual(["war", "war / wars", 1, "", -1, "Valence sheet"]);
     await s.documents.deleteDocument(id);
   });
 
@@ -336,7 +344,9 @@ describe("services", () => {
     await workbook.xlsx.load((await s.frequency.valenceXlsx()).buffer);
     const sheet = workbook.getWorksheet("Jev export");
     expect(sheet?.getRow(2).getCell(1).value).toBe("peace");
-    expect(sheet?.getRow(2).getCell(4).value).toBe(-1);
+    expect(sheet?.getRow(2).getCell(3).value).toBe(1);
+    expect(sheet?.getRow(2).getCell(5).value).toBe(-1);
+    expect(sheet?.getRow(2).getCell(6).value).toBe("Jev export");
     await s.documents.deleteDocument(id);
   });
 
