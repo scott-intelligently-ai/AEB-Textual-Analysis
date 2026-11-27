@@ -52,6 +52,12 @@ export const SparklesIcon = (p: IconProps) => (
     <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" />
   </Icon>
 );
+export const TestIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M9 3h6M10 3v5.5L5.2 19.2A2 2 0 0 0 7 22h10a2 2 0 0 0 1.8-2.8L14 8.5V3" />
+    <path d="M8.5 14h7" />
+  </Icon>
+);
 export const SettingsIcon = (p: IconProps) => (
   <Icon {...p}>
     <circle cx="12" cy="12" r="3" />

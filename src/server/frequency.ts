@@ -4,6 +4,7 @@ import { formatTermCategories } from "../lib/text/categories";
 import { formatTermWithVariants } from "../lib/text/variants";
 import { OCCURRENCE_DOWNLOAD_NOTE, TONE_FREQUENCY_DOWNLOAD_NOTE, csvWithNote } from "../lib/text/explanations";
 import { findOccurrences, frequencyTable, spanKey, type FrequencyTable } from "../lib/text/match";
+import { valenceSheets, valenceWorkbookBytes, type ValenceOccurrence } from "../lib/text/valence";
 import { getDocumentRows } from "./documents";
 import { listCategories } from "./taxonomy";
 import { listTerms, termPatterns } from "./terms";
@@ -134,4 +135,37 @@ export async function toneFrequencyCsv(documentIds?: number[]): Promise<string> 
     }
   }
   return csvWithNote(rows, TONE_FREQUENCY_DOWNLOAD_NOTE);
+}
+
+/**
+ * One worksheet per document. Each row is a term that appears at least once,
+ * with its variants, its category, and the sum of the tone on every appearance.
+ */
+export async function valenceXlsx(): Promise<Uint8Array<ArrayBuffer>> {
+  const { documents, termList, patterns, toneById, fallback, tagged } = await markedOccurrences();
+  const labels = await categoryLabels(termList);
+  const occurrences: ValenceOccurrence[] = [];
+  for (const document of documents) {
+    for (const occurrence of findOccurrences(document.text, patterns)) {
+      const annotation = tagged.get(`${document.id}:${spanKey(occurrence)}`);
+      const tone = annotation ? toneById.get(annotation.toneId) : fallback;
+      occurrences.push({
+        documentId: document.id,
+        termId: occurrence.termId,
+        score: tone?.score ?? 0,
+      });
+    }
+  }
+  return valenceWorkbookBytes(
+    valenceSheets({
+      documents,
+      terms: termList.map((term) => ({
+        id: term.id,
+        text: term.text,
+        variants: term.variants,
+        category: labels.get(term.id) ?? "",
+      })),
+      occurrences,
+    }),
+  );
 }
