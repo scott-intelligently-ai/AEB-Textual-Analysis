@@ -294,7 +294,7 @@ describe("services", () => {
     await s.documents.deleteDocument(id);
   });
 
-  it("sums each term's tones into one worksheet per document", async () => {
+  it("sums each term's tones onto one sheet, one document after another", async () => {
     const id = await addDocument("Valence sheet", "Peace, wars, and peace.");
     await tag(id, "Peace", 0, "Positive");
     await tag(id, "wars", 0, "Negative");
@@ -302,7 +302,7 @@ describe("services", () => {
     const workbook = new Workbook();
     const bytes = await s.frequency.valenceXlsx();
     await workbook.xlsx.load(bytes.buffer);
-    const sheet = workbook.getWorksheet("Valence sheet");
+    const sheet = workbook.getWorksheet("Valence");
     const values = (row: number) =>
       [1, 2, 3, 4, 5, 6].map((column) => sheet!.getRow(row).getCell(column).value);
     expect(values(1)).toEqual([
@@ -313,8 +313,15 @@ describe("services", () => {
       "Valence",
       "Document",
     ]);
-    expect(values(2)).toEqual(["peace", "peace", 2, "", 1, "Valence sheet"]);
-    expect(values(3)).toEqual(["war", "war / wars", 1, "", -1, "Valence sheet"]);
+    const own = [];
+    for (let row = 2; row <= sheet!.rowCount; row += 1) {
+      const line = values(row);
+      if (line[5] === "Valence sheet") own.push(line);
+    }
+    expect(own).toEqual([
+      ["peace", "peace", 2, "", 1, "Valence sheet"],
+      ["war", "war / wars", 1, "", -1, "Valence sheet"],
+    ]);
     await s.documents.deleteDocument(id);
   });
 
@@ -342,11 +349,15 @@ describe("services", () => {
     const { Workbook } = await import("exceljs");
     const workbook = new Workbook();
     await workbook.xlsx.load((await s.frequency.valenceXlsx()).buffer);
-    const sheet = workbook.getWorksheet("Jev export");
-    expect(sheet?.getRow(2).getCell(1).value).toBe("peace");
-    expect(sheet?.getRow(2).getCell(3).value).toBe(1);
-    expect(sheet?.getRow(2).getCell(5).value).toBe(-1);
-    expect(sheet?.getRow(2).getCell(6).value).toBe("Jev export");
+    const sheet = workbook.getWorksheet("Valence");
+    const match = [];
+    sheet?.eachRow((excelRow, number) => {
+      if (number === 1) return;
+      if (excelRow.getCell(6).value === "Jev export") {
+        match.push([excelRow.getCell(1).value, excelRow.getCell(3).value, excelRow.getCell(5).value]);
+      }
+    });
+    expect(match).toEqual([["peace", 1, -1]]);
     await s.documents.deleteDocument(id);
   });
 

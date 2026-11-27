@@ -4,7 +4,7 @@ import { formatTermCategories } from "../lib/text/categories";
 import { formatTermWithVariants } from "../lib/text/variants";
 import { OCCURRENCE_DOWNLOAD_NOTE, TONE_FREQUENCY_DOWNLOAD_NOTE, csvWithNote } from "../lib/text/explanations";
 import { findOccurrences, frequencyTable, spanKey, type FrequencyTable } from "../lib/text/match";
-import { valenceSheets, valenceWorkbookBytes, type ValenceOccurrence } from "../lib/text/valence";
+import { valenceRows, valenceWorkbookBytes, type ValenceOccurrence } from "../lib/text/valence";
 import { getDocumentRows } from "./documents";
 import { listCategories } from "./taxonomy";
 import { listTerms, termPatterns } from "./terms";
@@ -138,8 +138,8 @@ export async function toneFrequencyCsv(documentIds?: number[]): Promise<string> 
 }
 
 /**
- * One worksheet per document. Each row is a term that appears at least once,
- * with its frequency, category, summed tone, and the document title.
+ * One worksheet for the whole library. Each row is a term that appears at least
+ * once, with its frequency, category, summed tone, and the document title.
  */
 export async function valenceXlsx(): Promise<Uint8Array<ArrayBuffer>> {
   const { documents, termList, patterns, toneById, fallback, tagged } = await markedOccurrences();
@@ -157,7 +157,7 @@ export async function valenceXlsx(): Promise<Uint8Array<ArrayBuffer>> {
     }
   }
   return valenceWorkbookBytes(
-    valenceSheets({
+    valenceRows({
       documents,
       terms: termList.map((term) => ({
         id: term.id,
