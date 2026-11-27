@@ -1,11 +1,11 @@
 import { Workbook } from "exceljs";
 import { describe, expect, it } from "vitest";
 import { findOccurrences } from "./match";
-import { excelSheetName, valenceSheets, valenceWorkbookBytes } from "./valence";
+import { valenceRows, valenceWorkbookBytes } from "./valence";
 
 const documents = [
-  { id: 1, title: "Speech A" },
   { id: 2, title: "Speech B" },
+  { id: 1, title: "Speech A" },
   { id: 3, title: "Empty speech" },
 ];
 
@@ -16,14 +16,14 @@ const terms = [
   { id: 13, text: "hope", category: "" },
 ];
 
-describe("valenceSheets", () => {
+describe("valenceRows", () => {
   it("sums +1, 0, and −1, and counts a variant toward its term", () => {
     const found = findOccurrences("War, wars, and one more war.", [
       { id: 11, text: "war", variants: ["wars"] },
     ]);
     expect(found.map((occurrence) => occurrence.text)).toEqual(["War", "wars", "war"]);
 
-    const sheets = valenceSheets({
+    const rows = valenceRows({
       documents: [{ id: 1, title: "Speech A" }],
       terms: [terms[1]],
       occurrences: found.map((occurrence, index) => ({
@@ -33,32 +33,36 @@ describe("valenceSheets", () => {
       })),
     });
 
-    expect(sheets).toHaveLength(1);
-    expect(sheets[0].rows).toEqual([
+    expect(rows).toEqual([
       {
         term: "war",
         termWithVariants: "war / wars",
+        frequency: 3,
         category: "Conflict",
         valence: 0,
+        document: "Speech A",
       },
     ]);
   });
 
   it("omits a term that never appears, and a document with no terms", () => {
-    const sheets = valenceSheets({
+    const rows = valenceRows({
       documents,
       terms,
       occurrences: [{ documentId: 1, termId: 11, score: 1 }],
     });
-    expect(sheets.map((sheet) => sheet.title)).toEqual(["Speech A"]);
-    expect(sheets[0].rows.map((row) => row.term)).toEqual(["war"]);
+    expect(rows.map((row) => [row.document, row.term])).toEqual([["Speech A", "war"]]);
   });
 
-  it("sorts by category, then by frequency, and leaves an uncategorized term last", () => {
-    const sheets = valenceSheets({
-      documents: [{ id: 1, title: "Speech A" }],
+  it("sorts by document title, then category, then frequency from highest to lowest", () => {
+    const rows = valenceRows({
+      documents,
       terms,
       occurrences: [
+        { documentId: 2, termId: 12, score: 1 },
+        { documentId: 2, termId: 12, score: 1 },
+        { documentId: 2, termId: 12, score: 1 },
+        { documentId: 2, termId: 11, score: -1 },
         { documentId: 1, termId: 12, score: 1 },
         { documentId: 1, termId: 12, score: 1 },
         { documentId: 1, termId: 12, score: 1 },
@@ -67,28 +71,21 @@ describe("valenceSheets", () => {
         { documentId: 1, termId: 11, score: 0 },
         { documentId: 1, termId: 10, score: 1 },
         { documentId: 1, termId: 13, score: 1 },
-        { documentId: 1, termId: 13, score: 1 },
-        { documentId: 1, termId: 13, score: 1 },
-        { documentId: 1, termId: 13, score: 1 },
-        { documentId: 1, termId: 13, score: 1 },
       ],
     });
 
-    expect(sheets[0].rows).toEqual([
-      { term: "war", termWithVariants: "war / wars", category: "Conflict", valence: -1 },
-      { term: "tax", termWithVariants: "tax", category: "Domestic", valence: 2 },
-      {
-        term: "peace",
-        termWithVariants: "peace / peaceful",
-        category: "Foreign / Treaties",
-        valence: 1,
-      },
-      { term: "hope", termWithVariants: "hope", category: "", valence: 5 },
+    expect(rows.map((row) => [row.document, row.category, row.term, row.frequency, row.valence])).toEqual([
+      ["Speech A", "Conflict", "war", 2, -1],
+      ["Speech A", "Domestic", "tax", 4, 2],
+      ["Speech A", "Foreign / Treaties", "peace", 1, 1],
+      ["Speech A", "", "hope", 1, 1],
+      ["Speech B", "Conflict", "war", 1, -1],
+      ["Speech B", "Domestic", "tax", 3, 3],
     ]);
   });
 
   it("breaks a frequency tie by the term, within the same category", () => {
-    const sheets = valenceSheets({
+    const rows = valenceRows({
       documents: [{ id: 1, title: "Speech A" }],
       terms: [
         { id: 1, text: "gamma", category: "A" },
@@ -105,25 +102,13 @@ describe("valenceSheets", () => {
         { documentId: 1, termId: 3, score: -1 },
       ],
     });
-    expect(sheets[0].rows.map((row) => row.term)).toEqual(["epsilon", "gamma", "beta"]);
-  });
-});
-
-describe("excelSheetName", () => {
-  it("drops characters Excel forbids, shortens the name, and keeps duplicates apart", () => {
-    const used = new Set<string>();
-    expect(excelSheetName("Report: 2024/Q1?", used)).toBe("Report 2024 Q1");
-    expect(excelSheetName("report: 2024/q1?", used)).toBe("report 2024 q1 (2)");
-    const long = "A very long document title that will not fit";
-    expect(excelSheetName(long, used)).toBe("A very long document title that");
-    expect(excelSheetName(long, used)).toBe("A very long document title (2)");
-    expect(excelSheetName("History", used)).toBe("History sheet");
+    expect(rows.map((row) => row.term)).toEqual(["epsilon", "gamma", "beta"]);
   });
 });
 
 describe("valenceWorkbookBytes", () => {
-  it("writes one worksheet per document, with the four columns", async () => {
-    const sheets = valenceSheets({
+  it("writes every document onto one sheet, in document order", async () => {
+    const rows = valenceRows({
       documents,
       terms,
       occurrences: [
@@ -133,36 +118,45 @@ describe("valenceWorkbookBytes", () => {
       ],
     });
     const workbook = new Workbook();
-    const bytes = await valenceWorkbookBytes(sheets);
-    await workbook.xlsx.load(bytes.buffer);
+    await workbook.xlsx.load((await valenceWorkbookBytes(rows)).buffer);
 
-    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Speech A", "Speech B"]);
-    const first = workbook.worksheets[0];
-    expect(rowValues(first, 1)).toEqual(["Term", "Term with variants", "Category", "Valence"]);
-    expect(rowValues(first, 2)).toEqual(["war", "war / wars", "Conflict", -1]);
-    expect(rowValues(workbook.worksheets[1], 2)).toEqual([
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Valence"]);
+    const sheet = workbook.worksheets[0];
+    expect(rowValues(sheet, 1)).toEqual([
+      "Term",
+      "Term with variants",
+      "Frequency",
+      "Category",
+      "Valence",
+      "Document",
+    ]);
+    expect(rowValues(sheet, 2)).toEqual(["war", "war / wars", 1, "Conflict", -1, "Speech A"]);
+    expect(rowValues(sheet, 3)).toEqual([
       "peace",
       "peace / peaceful",
+      2,
       "Foreign / Treaties",
       2,
+      "Speech B",
     ]);
   });
 
   it("still produces a workbook when nothing matched", async () => {
     const workbook = new Workbook();
-    const bytes = await valenceWorkbookBytes([]);
-    await workbook.xlsx.load(bytes.buffer);
-    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Documents"]);
+    await workbook.xlsx.load((await valenceWorkbookBytes([])).buffer);
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Valence"]);
     expect(rowValues(workbook.worksheets[0], 1)).toEqual([
       "Term",
       "Term with variants",
+      "Frequency",
       "Category",
       "Valence",
+      "Document",
     ]);
   });
 });
 
 function rowValues(sheet: Workbook["worksheets"][number], rowNumber: number): unknown[] {
   const row = sheet.getRow(rowNumber);
-  return [1, 2, 3, 4].map((column) => row.getCell(column).value);
+  return [1, 2, 3, 4, 5, 6].map((column) => row.getCell(column).value);
 }
