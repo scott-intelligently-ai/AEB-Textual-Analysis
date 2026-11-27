@@ -294,6 +294,22 @@ describe("services", () => {
     await s.documents.deleteDocument(id);
   });
 
+  it("sums each term's tones into one worksheet per document", async () => {
+    const id = await addDocument("Valence sheet", "Peace, wars, and peace.");
+    await tag(id, "Peace", 0, "Positive");
+    await tag(id, "wars", 0, "Negative");
+    const { Workbook } = await import("exceljs");
+    const workbook = new Workbook();
+    const bytes = await s.frequency.valenceXlsx();
+    await workbook.xlsx.load(bytes.buffer);
+    const sheet = workbook.getWorksheet("Valence sheet");
+    const values = (row: number) => [1, 2, 3, 4].map((column) => sheet!.getRow(row).getCell(column).value);
+    expect(values(1)).toEqual(["Term", "Term with variants", "Category", "Valence"]);
+    expect(values(2)).toEqual(["peace", "peace", "", 1]);
+    expect(values(3)).toEqual(["war", "war / wars", "", -1]);
+    await s.documents.deleteDocument(id);
+  });
+
   it("counts an unconfirmed Jev suggestion as that tone in a download", async () => {
     const { getDb, schema } = s.db;
     const id = await addDocument("Jev export", "Peace now.");
@@ -315,6 +331,12 @@ describe("services", () => {
     const row = frequency.find((line) => line.startsWith("Jev export,peace,"))!.split(",");
     expect(row[header.indexOf("Negative")]).toBe("1");
     expect(row[header.indexOf("Neutral")]).toBe("0");
+    const { Workbook } = await import("exceljs");
+    const workbook = new Workbook();
+    await workbook.xlsx.load((await s.frequency.valenceXlsx()).buffer);
+    const sheet = workbook.getWorksheet("Jev export");
+    expect(sheet?.getRow(2).getCell(1).value).toBe("peace");
+    expect(sheet?.getRow(2).getCell(4).value).toBe(-1);
     await s.documents.deleteDocument(id);
   });
 

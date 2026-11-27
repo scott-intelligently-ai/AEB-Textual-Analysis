@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentType, SVGProps } from "react";
-import { DocumentsIcon, PaletteIcon, SettingsIcon, TermsIcon } from "./icons";
+import { DocumentsIcon, PaletteIcon, SettingsIcon, TermsIcon, TestIcon } from "./icons";
 import { cx } from "./ui";
 
 interface Item {
@@ -18,6 +18,7 @@ const ITEMS: Item[] = [
   { href: "/", label: "Documents", icon: DocumentsIcon, also: ["/documents", "/uploads"] },
   { href: "/terms", label: "Terms", icon: TermsIcon },
   { href: "/tones", label: "Tones", icon: PaletteIcon },
+  { href: "/test", label: "Test", icon: TestIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
